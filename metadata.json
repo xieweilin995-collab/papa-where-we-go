@@ -1,0 +1,7 @@
+{
+  "name": "遛娃去哪 - AI遛娃决策助手",
+  "description": "基于位置、天气和AI生成的个性化亲子出行计划助手。",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
