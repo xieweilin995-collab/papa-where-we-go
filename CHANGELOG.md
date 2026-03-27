@@ -7,11 +7,12 @@ The format is based on Keep a Changelog and the project follows semantic version
 ## [Unreleased]
 
 ### Added
-- Development branch strategy with `main`, `develop`, and short-lived feature branches.
+- Main-only development strategy with tagged milestones on `main`.
 - Release workflow documentation and pull request template.
 
 ### Changed
 - Project metadata prepared for tracked versioned releases.
+- Repository workflow updated to use `main` as the only long-lived branch.
 
 ### Fixed
 - No fixes yet.

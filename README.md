@@ -21,23 +21,17 @@ View your app in AI Studio: https://ai.studio/apps/14f85b53-f3c2-40ef-84a5-c8227
 
 ## Development Workflow
 
-Use these long-lived branches:
+This repository uses a `main`-only workflow.
 
-- `main`: stable versions only
-- `develop`: day-to-day integration branch
-
-Create short-lived feature branches from `develop`:
-
-- `feature/<name>`
-- `fix/<name>`
+- `main`: the only long-lived branch and the source of truth
 
 Recommended flow for each iteration:
 
-1. Branch from `develop`
+1. Develop directly on `main`
 2. Build and verify locally
-3. Merge back into `develop`
-4. Promote `develop` into `main` when the iteration is stable
-5. Tag the release on `main` using `v0.x.y`
+3. Commit small, clear changes
+4. Push `main` to GitHub
+5. Tag stable milestones on `main` using `v0.x.y`
 6. Update [CHANGELOG.md](./CHANGELOG.md) and create a GitHub Release
 
 ## Versioning

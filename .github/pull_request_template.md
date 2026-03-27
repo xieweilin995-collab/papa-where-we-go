@@ -15,7 +15,6 @@
 - [ ] `npm run build`
 - [ ] Manual smoke test completed
 
-## Merge Target
+## Branch Target
 
-- [ ] `develop`
 - [ ] `main`
