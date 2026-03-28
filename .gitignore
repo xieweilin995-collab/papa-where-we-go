@@ -8,3 +8,4 @@ coverage/
 !.env.example
 .wrangler/
 .dev.vars
+_worker.bundle
