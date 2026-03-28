@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Baby,
   ArrowRight,
   ChevronDown,
   Loader2,
@@ -262,22 +261,6 @@ function getDurationLabel(duration: string) {
   return duration;
 }
 
-function getTripFacts(params: {
-  tripType: string;
-  duration: string;
-  age: string;
-  weather: Weather | null;
-  scopedLocationLabel: string;
-  notice?: string;
-}) {
-  const { tripType, duration, age, scopedLocationLabel } = params;
-  return [
-    { label: "出行范围", value: scopedLocationLabel },
-    { label: "适合人群", value: `${age}岁 · ${getDurationLabel(duration)}` },
-    { label: "行程类型", value: tripType === "today" ? "当天遛娃" : "小长假遛娃" },
-  ];
-}
-
 function getDisplayLocationLabel(location: LocationState, weather: Weather | null, tripType: TripType) {
   if (location.source === "fallback" && weather?.source === "fallback") {
     return "请开启实时定位";
@@ -380,7 +363,6 @@ export default function App() {
   const [tripType, setTripType] = useState<string>("today");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tip, setTip] = useState<string>("别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。");
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [locationNotice, setLocationNotice] = useState<string>(
     "正在为你获取所在城市附近的位置。",
@@ -389,16 +371,6 @@ export default function App() {
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const [, setIsRequestingPreciseLocation] = useState(false);
   const locationRef = useRef<LocationState>(location);
-
-  const tips = [
-    "别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。",
-    "记得多带一套备用衣服，以防孩子玩耍时弄脏或弄湿。",
-    "随身携带一些健康的小零食和充足的饮用水，随时补充能量。",
-    "在户外活动时，注意观察孩子的体力情况，适时休息。",
-    "如果去公园，可以带上野餐垫，享受一段悠闲的亲子时光。",
-    "带上免洗洗手液，随时保持手部卫生。",
-    "如果是去室内游乐场，记得给孩子穿上防滑袜。",
-  ];
 
   async function fetchWeather(lat: number, lng: number) {
     try {
@@ -641,7 +613,6 @@ export default function App() {
       if (planData.error) throw new Error(planData.error);
 
       setResult(planData);
-      setTip(tips[Math.floor(Math.random() * tips.length)]);
       setStep("result");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (planError: any) {
@@ -652,16 +623,6 @@ export default function App() {
   }
 
   const scopedLocationLabel = getDisplayLocationLabel(location, weather, tripType as TripType);
-  const resultFacts = result
-    ? getTripFacts({
-        tripType,
-        duration,
-        age,
-        weather,
-        scopedLocationLabel,
-        notice: result.notice,
-      })
-    : [];
 
   return (
     <div className="min-h-screen bg-paper text-ink font-sans selection:bg-brand-coral/10 relative">
@@ -948,33 +909,21 @@ export default function App() {
             className="pt-40 pb-40 px-10 lg:px-20 max-w-7xl mx-auto space-y-24"
           >
             <div className="space-y-12">
-              <div className="space-y-8">
+              <div className="space-y-6">
+                <p className="text-[11px] uppercase tracking-[0.35em] font-black text-ink/35">
+                  {tripType === "today" ? "当天遛娃" : "小长假遛娃"} · {getDurationLabel(duration)} · {scopedLocationLabel}
+                </p>
                 <h2 className="text-[8vw] lg:text-[6vw] font-black tracking-tighter text-ink leading-tight font-serif italic">
                   建议前往：{result.recommendations[0]?.name || "附近的公园"}
                 </h2>
-                <div className="inline-flex flex-wrap items-center gap-3 rounded-full border border-ink/10 bg-white/80 px-5 py-3 text-sm font-black text-ink/55">
-                  <span>{scopedLocationLabel}</span>
-                  <span>{getWeatherLabel(weather)} {getWeatherRange(weather)}</span>
-                </div>
                 {result.notice && (
                   <div className="max-w-4xl rounded-[28px] border border-brand-coral/20 bg-brand-coral/6 px-6 py-5 text-base lg:text-lg font-black text-brand-coral leading-relaxed">
                     {result.notice}
                   </div>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 max-w-6xl">
-                  {resultFacts.map((fact) => (
-                    <div
-                      key={fact.label}
-                      className="rounded-[28px] border border-ink/8 bg-white/80 px-5 py-5 lg:px-6 lg:py-6 space-y-2"
-                    >
-                      <p className="text-[10px] uppercase tracking-[0.28em] font-black text-ink/30">{fact.label}</p>
-                      <p className="text-lg lg:text-xl font-black text-ink leading-relaxed">{fact.value}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
 
-              <div className="p-8 lg:p-12 bg-brand-coral/5 border border-brand-coral/20 text-ink rounded-[40px] shadow-sm space-y-10">
+              <div className="p-8 lg:p-10 bg-white/88 border border-ink/8 text-ink rounded-[32px] shadow-sm space-y-8">
                 <div className="space-y-3">
                   <label className="text-xs uppercase tracking-[0.4em] font-black opacity-30 block">建议完整方案</label>
                 </div>
@@ -996,7 +945,7 @@ export default function App() {
                       ]).map((option) => (
                     <div
                       key={option.id}
-                      className="rounded-[32px] border border-ink/8 bg-white/80 px-6 py-6 lg:px-8 lg:py-8 space-y-6"
+                      className="rounded-[28px] border border-ink/8 bg-paper/55 px-6 py-6 lg:px-7 lg:py-7 space-y-6"
                     >
                       <div className="space-y-2">
                         <p className="text-xl lg:text-2xl font-black text-ink font-serif italic">{option.label}</p>
@@ -1009,7 +958,10 @@ export default function App() {
                         {option.blocks.map((block, blockIndex) => (
                           <div
                             key={`${option.id}-${block.title}-${blockIndex}`}
-                            className="rounded-[24px] border border-ink/6 bg-paper/70 px-5 py-5 space-y-5"
+                            className={cn(
+                              "space-y-4",
+                              blockIndex > 0 ? "border-t border-ink/8 pt-5" : "",
+                            )}
                           >
                             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
                               <div className="space-y-1">
@@ -1041,35 +993,19 @@ export default function App() {
               </div>
             </div>
 
-            <div className="space-y-16">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 border-b border-ink/10 pb-12 relative">
-                <div className="flex items-center gap-6">
-                  <div className="w-16 h-16 rounded-2xl bg-brand-coral flex items-center justify-center text-white shadow-xl shadow-brand-coral/20">
-                    <Navigation size={32} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-[0.5em] font-black text-ink/40">精选推荐地点</label>
-                    <h3 className="text-3xl lg:text-4xl font-black tracking-tight font-serif italic">
-                      Kids <span className="text-brand-coral">Playground</span>
-                    </h3>
-                  </div>
-                </div>
-                
-                <div className="hidden md:flex items-center gap-4">
-                  <span className="text-[10px] uppercase tracking-[0.5em] font-black opacity-20">Trendy Selection</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4].map(i => (
-                      <div key={i} className="w-2 h-2 rounded-full bg-brand-coral/20" />
-                    ))}
-                  </div>
-                </div>
+            <div className="space-y-10">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.5em] font-black text-ink/40">精选推荐地点</label>
+                <h3 className="text-3xl lg:text-4xl font-black tracking-tight font-serif italic text-ink">
+                  再挑几处顺路可去的地方
+                </h3>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {result.recommendations.map((rec, idx) => (
                   <div
                     key={idx}
-                    className="group space-y-6 bg-white p-10 rounded-[40px] border border-ink/5 hover:shadow-xl transition-all font-serif italic"
+                    className="group space-y-5 bg-white p-8 rounded-[28px] border border-ink/8 hover:shadow-lg transition-all font-serif italic"
                   >
                     <div className="flex justify-between items-start gap-4">
                       <h4 className="text-2xl font-black tracking-normal text-ink group-hover:text-brand-coral transition-colors">
@@ -1079,8 +1015,7 @@ export default function App() {
                         {rec.distance}
                       </span>
                     </div>
-                    <p className="text-base text-ink/50 leading-relaxed font-black">{rec.reason}</p>
-                    {rec.address && <p className="text-sm text-ink/35 font-black not-italic">{rec.address}</p>}
+                    {rec.address && <p className="text-sm text-ink/45 font-black not-italic">{rec.address}</p>}
                     <a
                       href={buildNavigationUrl(rec, location)}
                       target="_blank"
@@ -1094,23 +1029,13 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
-              <div className="p-12 bg-brand-yellow/5 rounded-[40px] border border-brand-yellow/20 relative overflow-hidden flex flex-col justify-center">
-                <div className="relative z-10 space-y-4">
-                  <h5 className="text-[10px] uppercase tracking-[0.3em] font-black text-ink/40">遛娃小贴士</h5>
-                  <p className="text-lg text-ink/70 font-black leading-relaxed font-serif italic">{tip}</p>
-                </div>
-                <div className="absolute -bottom-8 -right-8 opacity-[0.03] text-ink">
-                  <Baby size={160} />
-                </div>
-              </div>
-
+            <div className="max-w-xl">
               <button
                 onClick={() => {
                   setStep("home");
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
-                className="w-full h-full p-12 bg-white border border-ink/10 text-ink rounded-[40px] flex flex-col items-center justify-center gap-6 group hover:bg-brand-coral hover:text-white hover:border-brand-coral transition-all font-serif italic shadow-sm"
+                className="w-full p-10 bg-white border border-ink/10 text-ink rounded-[28px] flex flex-col items-center justify-center gap-5 group hover:bg-brand-coral hover:text-white hover:border-brand-coral transition-all font-serif italic shadow-sm"
               >
                 <RefreshCw size={40} className="group-hover:rotate-180 transition-transform duration-500" />
                 <span className="text-xl font-black uppercase tracking-widest">重新规划行程</span>

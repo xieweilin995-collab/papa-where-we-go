@@ -202,6 +202,10 @@ function inferNeighborhoodScore(poi: RankedPoi): number {
   return hasKeyword(joinedText, ["公园", "playground"]) && inferDestinationScore(poi) === 0 ? 0.8 : 0;
 }
 
+function isGenericNeighborhoodPark(poi: RankedPoi): boolean {
+  return inferNeighborhoodScore(poi) >= 0.8 && inferDestinationScore(poi) === 0;
+}
+
 function parseDurationMinutes(duration: string): number {
   switch (duration) {
     case "1h":
@@ -422,7 +426,7 @@ function buildPlanningNotice(context: PlanningContext): string | undefined {
 
   const hour = getReferenceTime(context).getHours();
   if (hour >= 21) {
-    return "现在已经是 21:00 以后了，孩子更适合休息，今晚不建议继续遛娃。下面优先给你隔天白天更适合执行的方案。";
+    return "现在夜深了，宝宝应该进入梦乡。下面优先给你隔天白天更适合执行的方案。";
   }
 
   return undefined;
@@ -496,6 +500,95 @@ function buildRecommendationReason(context: PlanningContext, poi: RankedPoi): st
   }
 
   return "距离合适、节奏轻松，比较符合短时间内高质量遛娃的体验。";
+}
+
+function getRecommendationReachLimit(context: PlanningContext): number {
+  if (context.tripType === "weekend") {
+    return context.duration === "3d2n" ? 50 : 28;
+  }
+
+  switch (context.duration) {
+    case "1h":
+      return 3.5;
+    case "2h":
+      return 6;
+    case "half-day":
+      return 10;
+    default:
+      return 8;
+  }
+}
+
+function hasReachableDestinationAlternative(
+  poi: RankedPoi,
+  pois: RankedPoi[],
+  context: PlanningContext,
+): boolean {
+  const reachLimit = getRecommendationReachLimit(context);
+
+  return pois.some((candidate) => {
+    if (candidate.name === poi.name) {
+      return false;
+    }
+
+    return (
+      inferDestinationScore(candidate) > 0 &&
+      candidate.distanceKm <= reachLimit &&
+      candidate.rating >= poi.rating - 0.6
+    );
+  });
+}
+
+function buildLeadPoiScore(context: PlanningContext, poi: RankedPoi, pois: RankedPoi[]): number {
+  const weatherMode = context.weather.weather === "rain" || context.weather.temp >= 32 ? "indoor" : "outdoor";
+  const destinationScore = inferDestinationScore(poi);
+  const neighborhoodScore = inferNeighborhoodScore(poi);
+  const sameDistrictBonus =
+    context.tripType === "today" && context.district && poi.district === context.district ? 0.9 : 0;
+  const distanceScore =
+    context.tripType === "today"
+      ? poi.distanceKm <= 1.5
+        ? 1.3
+        : poi.distanceKm <= 3.5
+          ? 0.8
+          : poi.distanceKm <= getRecommendationReachLimit(context)
+            ? 0.2
+            : -1.5
+      : poi.distanceKm <= 12
+        ? 0.7
+        : poi.distanceKm <= 24
+          ? 0.2
+          : -0.5;
+  const weatherFit =
+    weatherMode === "indoor" ? inferIndoorScore(poi) * 1.5 : inferOutdoorScore(poi) * 0.7 + inferIndoorScore(poi) * 0.2;
+  const destinationBoost =
+    destinationScore *
+    (context.tripType === "weekend" ? 2.9 : context.duration === "1h" ? 1.1 : context.duration === "2h" ? 2 : 2.5);
+  const genericLeadPenalty =
+    isGenericNeighborhoodPark(poi) && hasReachableDestinationAlternative(poi, pois, context)
+      ? context.tripType === "weekend"
+        ? 4.2
+        : context.duration === "1h"
+          ? 1.4
+          : 3.2
+      : 0;
+
+  return (
+    poi.rating * 1.1 +
+    sameDistrictBonus +
+    distanceScore +
+    weatherFit +
+    destinationBoost +
+    buildAgeBonus(context, poi) * 0.35 -
+    neighborhoodScore * (context.tripType === "weekend" ? 2.1 : 1.1) -
+    genericLeadPenalty
+  );
+}
+
+function prioritizeRecommendationPois(context: PlanningContext, pois: RankedPoi[]): RankedPoi[] {
+  return [...pois].sort(
+    (left, right) => buildLeadPoiScore(context, right, pois) - buildLeadPoiScore(context, left, pois),
+  );
 }
 
 interface ScheduleBlueprint {
@@ -596,7 +689,8 @@ function buildModeSpecificPoiList(
         buildDurationBias(context, poi) * 0.8 +
         (context.age === "6+" ? inferBigKidScore(poi) * 0.7 : inferToddlerScore(poi) * 0.2) +
         (context.tripType === "weekend" ? outdoorScore * 0.7 : 0) -
-        neighborhoodScore * (context.duration === "3d2n" ? 1.3 : 0.3)
+        neighborhoodScore * (context.duration === "3d2n" ? 1.3 : 0.3) +
+        buildLeadPoiScore(context, poi, pois) * 0.35
       );
     };
 
@@ -785,7 +879,7 @@ function buildScheduleOptions(context: PlanningContext, pois: RankedPoi[]): Sche
 }
 
 export function buildRealtimePlan(context: PlanningContext, pois: RankedPoi[]): PlanResultShape {
-  const topPois = pois.slice(0, context.tripType === "today" ? 3 : 4);
+  const topPois = prioritizeRecommendationPois(context, pois).slice(0, context.tripType === "today" ? 3 : 4);
   const primary = topPois[0];
   const summaryLead = buildWeatherLead(context.weather);
   const notice = buildPlanningNotice(context);
@@ -819,7 +913,7 @@ export function buildRealtimePlan(context: PlanningContext, pois: RankedPoi[]): 
 }
 
 export function buildFallbackPlan(context: PlanningContext, pois: RankedPoi[]): PlanResultShape {
-  const topPois = pois.slice(0, 3);
+  const topPois = prioritizeRecommendationPois(context, pois).slice(0, 3);
   const primary = topPois[0];
   const notice = buildPlanningNotice(context);
   const recommendationReason =

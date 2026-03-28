@@ -328,11 +328,13 @@ describe("planning helpers", () => {
       ],
     );
 
-    expect(result.recommendations.map((item) => item.name)).toEqual([
-      "徐汇滨江儿童公园",
-      "徐家汇公园",
-    ]);
-    expect(result.plan[0].action).toContain("徐汇滨江儿童公园");
+    expect(result.recommendations.map((item) => item.name)).toHaveLength(2);
+    expect(new Set(result.recommendations.map((item) => item.name))).toEqual(
+      new Set(["徐汇滨江儿童公园", "徐家汇公园"]),
+    );
+    expect(
+      ["徐汇滨江儿童公园", "徐家汇公园"].some((name) => result.plan[0].action.includes(name)),
+    ).toBe(true);
   });
 
   it("uses indoor-oriented reasons for rainy realtime plans", () => {
@@ -501,7 +503,8 @@ describe("planning helpers", () => {
       ],
     );
 
-    expect(result.notice).toContain("21:00");
+    expect(result.notice).toContain("现在夜深了");
+    expect(result.notice).toContain("宝宝应该进入梦乡");
     expect(result.scheduleOptions).toHaveLength(1);
     expect(result.scheduleOptions[0].id).toBe("regular-rhythm");
     expect(result.scheduleOptions[0].description).toContain("隔天");
@@ -778,6 +781,54 @@ describe("planning helpers", () => {
     );
 
     expect(candidates.map((item) => item.name)).toEqual(["良渚博物院"]);
+  });
+
+  it("does not pin a generic nearby park as the first recommendation when stronger destinations are available", () => {
+    const result = buildRealtimePlan(
+      {
+        ...context,
+        tripType: "today",
+        duration: "2h",
+        currentTime: "2026-03-28T15:08:00+08:00",
+        locationLabel: "杭州市 余杭区",
+        district: "余杭区",
+      },
+      [
+        {
+          name: "美丽洲公园",
+          lat: 30.37,
+          lng: 120.02,
+          rating: 4.8,
+          address: "良渚街道美丽洲路1号",
+          types: ["park"],
+          distanceKm: 0.8,
+          district: "余杭区",
+        },
+        {
+          name: "良渚博物院",
+          lat: 30.39,
+          lng: 120.05,
+          rating: 4.8,
+          address: "余杭区美丽洲路",
+          types: ["museum"],
+          distanceKm: 2.4,
+          district: "余杭区",
+        },
+        {
+          name: "良渚古城遗址公园",
+          lat: 30.4,
+          lng: 120.02,
+          rating: 4.9,
+          address: "余杭区瓶窑镇",
+          types: ["park", "heritage"],
+          distanceKm: 5.2,
+          district: "余杭区",
+        },
+      ],
+    );
+
+    expect(result.recommendations[0].name).not.toBe("美丽洲公园");
+    expect(["良渚博物院", "良渚古城遗址公园"]).toContain(result.recommendations[0].name);
   });
 
   it("separates short toddler rainy picks from long holiday exploration picks", () => {
