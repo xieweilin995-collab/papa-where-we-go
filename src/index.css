@@ -28,9 +28,9 @@
 }
 
 .snap-container {
-  scroll-snap-type: y mandatory;
-  overflow-y: scroll;
-  height: 100vh;
+  scroll-snap-type: none;
+  overflow-y: visible;
+  height: auto;
   scrollbar-width: none;
 }
 
@@ -39,8 +39,7 @@
 }
 
 .snap-section {
-  scroll-snap-align: start;
-  height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   position: relative;
 }

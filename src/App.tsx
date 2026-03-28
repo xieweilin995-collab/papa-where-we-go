@@ -1,24 +1,27 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  MapPin, 
-  Cloud, 
-  Sun, 
-  CloudRain, 
-  Baby, 
-  Clock, 
-  ArrowRight, 
-  ChevronRight,
+import {
+  Baby,
+  ArrowRight,
   ChevronDown,
   Loader2,
   RefreshCw,
   Navigation,
-  Map as MapIcon,
-  Candy
+  MapPin,
+  Search,
 } from "lucide-react";
 import { cn } from "./lib/utils";
-
-// --- Types ---
+import {
+  buildFallbackLocationState,
+  buildLocationLabel,
+  normalizeAutoLocationResult,
+  normalizeBootstrapLocationResult,
+  normalizeManualLocationResult,
+  shouldRestoreSavedLocation,
+  shouldReplaceLocation,
+  type LocationState,
+} from "./lib/location";
+import { buildScopedLocationLabel, type TripType } from "./lib/planning";
 
 interface Weather {
   temp: number;
@@ -28,15 +31,9 @@ interface Weather {
   weatherDesc?: string;
   humidity: number;
   city?: string;
-}
-
-interface POI {
-  name: string;
-  lat: number;
-  lng: number;
-  rating: number;
-  address: string;
-  types: string[];
+  district?: string;
+  province?: string;
+  source?: string;
 }
 
 interface PlanItem {
@@ -44,19 +41,61 @@ interface PlanItem {
   action: string;
 }
 
+interface ScheduleBlock {
+  title: string;
+  summary: string;
+  items: PlanItem[];
+}
+
+interface ScheduleOption {
+  id: "depart-now" | "regular-rhythm";
+  label: string;
+  description: string;
+  blocks: ScheduleBlock[];
+}
+
 interface Recommendation {
   name: string;
   reason: string;
   distance: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
 }
 
 interface PlanResult {
   summary: string;
   plan: PlanItem[];
+  scheduleOptions?: ScheduleOption[];
+  notice?: string;
   recommendations: Recommendation[];
+  dataSource?: string;
+  generatedAt?: string;
+  poiCount?: number;
 }
 
-// --- Components ---
+interface GeocodeResponse {
+  name: string;
+  lat: number;
+  lng: number;
+  city?: string;
+  district?: string;
+  province?: string;
+  source: string;
+}
+
+interface ReverseGeocodeResponse extends GeocodeResponse {}
+
+const DEFAULT_WEATHER: Weather = {
+  temp: 23,
+  tempMin: 20,
+  tempMax: 26,
+  weather: "sunny",
+  humidity: 50,
+  city: "上海",
+  district: "黄浦区",
+  source: "fallback",
+};
 
 // --- Constants ---
 
@@ -89,21 +128,23 @@ const COPY_SCHEMES = [
 
 const GridBackground = () => (
   <div className="absolute inset-0 z-[-1] pointer-events-none overflow-hidden h-full">
-    <div className="absolute inset-0 opacity-[0.03]" 
-         style={{ backgroundImage: 'radial-gradient(#2D3436 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+    <div
+      className="absolute inset-0 opacity-[0.03]"
+      style={{ backgroundImage: "radial-gradient(#2D3436 1px, transparent 1px)", backgroundSize: "60px 60px" }}
+    />
   </div>
 );
 
 const CarIcon = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
     <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 13.1V16c0 .6.4 1 1 1h2" />
@@ -114,15 +155,15 @@ const CarIcon = ({ size = 24, className = "" }: { size?: number; className?: str
 );
 
 const LollipopIcon = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
     <circle cx="12" cy="8" r="6" />
@@ -132,60 +173,207 @@ const LollipopIcon = ({ size = 24, className = "" }: { size?: number; className?
   </svg>
 );
 
-const Header = ({ step, isScreen2 }: { step: "home" | "result", isScreen2?: boolean }) => {
+const Header = ({ step, isScreen2 }: { step: "home" | "result"; isScreen2?: boolean }) => {
   const getIcon = () => {
     if (step === "result") return <LollipopIcon size={24} className="text-brand-coral" />;
-    if (isScreen2) return <MapIcon size={24} className="text-brand-coral" />;
+    if (isScreen2) return <MapPin size={24} className="text-brand-coral" />;
     return <CarIcon size={24} className="text-brand-coral" />;
   };
 
   return (
-    <header className={cn(
-      "absolute top-0 left-0 right-0 z-50 px-10 py-10 flex justify-between items-center transition-colors duration-500",
-      "text-ink"
-    )}>
+    <header
+      className={cn(
+        "absolute top-0 left-0 right-0 z-50 px-10 py-10 flex justify-between items-center transition-colors duration-500",
+        "text-ink",
+      )}
+    >
       <div className="flex items-center gap-3 group cursor-pointer">
-        <div className={cn(
-          "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform",
-          "bg-brand-coral/10"
-        )}>
+        <div
+          className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform",
+            "bg-brand-coral/10",
+          )}
+        >
           {getIcon()}
         </div>
         <div className="flex flex-col">
-          <span className={cn(
-            "text-[8px] uppercase tracking-[0.4em] font-black",
-            "text-ink/20"
-          )}>Editorial Guide</span>
+          <span className={cn("text-[8px] uppercase tracking-[0.4em] font-black", "text-ink/20")}>
+            Editorial Guide
+          </span>
         </div>
       </div>
-      <div className={cn(
-        "hidden md:flex gap-12 text-[10px] uppercase tracking-[0.4em] font-black",
-        "text-ink/10"
-      )}>
+      <div
+        className={cn(
+          "hidden md:flex gap-12 text-[10px] uppercase tracking-[0.4em] font-black",
+          "text-ink/10",
+        )}
+      >
         <span>v2.5 High Fidelity</span>
       </div>
     </header>
   );
 };
 
-// Carousel Illustration (Using User-Provided Image)
 const CarouselIllustration = () => (
-  <div className="relative w-full h-full flex items-center justify-center illustration-float">
-    <div className="relative w-[90%] lg:w-[100%] aspect-square">
-      <img 
-        src="/loading.png" 
-        alt="Carousel Illustration" 
-        className="w-full h-full object-contain rounded-[40px]"
-        referrerPolicy="no-referrer"
+  <div className="relative w-full h-full flex items-center justify-center">
+    <div className="relative w-[92%] lg:w-[100%] aspect-square">
+      <video
+        src="/carousel-reference.mp4"
+        className="w-full h-full object-contain"
+        autoPlay
+        muted
+        loop
+        playsInline
       />
     </div>
   </div>
 );
 
+function buildNavigationUrl(rec: Recommendation, location: LocationState): string {
+  if (Number.isFinite(rec.lat) && Number.isFinite(rec.lng)) {
+    const fromLabel = encodeURIComponent(location.name || "当前位置");
+    const toLabel = encodeURIComponent(rec.name);
+    return `https://uri.amap.com/navigation?from=${location.lng},${location.lat},${fromLabel}&to=${rec.lng},${rec.lat},${toLabel}&mode=car&src=去哪遛娃&coordinate=gaode&callnative=0`;
+  }
+
+  return `https://www.amap.com/search?query=${encodeURIComponent(rec.name)}`;
+}
+
+function getWeatherLabel(weather: Weather | null) {
+  if (!weather) return "天气载入中";
+  if (weather.weather === "rain") return "有雨";
+  if (weather.weather === "cloudy") return "多云";
+  return "晴朗";
+}
+
+function getWeatherRange(weather: Weather | null) {
+  if (!weather) return `${DEFAULT_WEATHER.tempMin}-${DEFAULT_WEATHER.tempMax}°C`;
+
+  const min = weather.tempMin ?? weather.temp - 2;
+  const max = weather.tempMax ?? weather.temp + 2;
+  return `${Math.min(min, max)}-${Math.max(min, max)}°C`;
+}
+
+function getDurationLabel(duration: string) {
+  if (duration === "half-day") return "半天";
+  if (duration === "1d") return "1天";
+  if (duration === "2d1n") return "2天1晚";
+  if (duration === "3d2n") return "3天2晚";
+  return duration;
+}
+
+function getTripFacts(params: {
+  tripType: string;
+  duration: string;
+  age: string;
+  weather: Weather | null;
+  scopedLocationLabel: string;
+  notice?: string;
+}) {
+  const { tripType, duration, age, scopedLocationLabel } = params;
+  return [
+    { label: "出行范围", value: scopedLocationLabel },
+    { label: "适合人群", value: `${age}岁 · ${getDurationLabel(duration)}` },
+    { label: "行程类型", value: tripType === "today" ? "当天遛娃" : "小长假遛娃" },
+  ];
+}
+
+function getDisplayLocationLabel(location: LocationState, weather: Weather | null, tripType: TripType) {
+  if (location.source === "fallback" && weather?.source === "fallback") {
+    return "请开启实时定位";
+  }
+
+  return buildScopedLocationLabel(
+    {
+      name: location.name,
+      city: location.city || (location.source === "auto" && weather?.source !== "fallback" ? weather?.city : undefined),
+      district:
+        location.district ||
+        (location.source === "auto" && weather?.source !== "fallback" ? weather?.district : undefined),
+    },
+    tripType,
+  );
+}
+
+function EditorialWeatherIcon({ weather }: { weather: Weather | null }) {
+  const stroke =
+    weather?.weather === "rain" ? "text-brand-blue" : weather?.weather === "sunny" ? "text-brand-coral" : "text-ink/55";
+
+  if (weather?.weather === "rain") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className={stroke}>
+        <path d="M8 17.5C5.79086 17.5 4 15.7091 4 13.5C4 11.2909 5.79086 9.5 8 9.5C8.45439 9.5 8.89109 9.57577 9.29798 9.7155C10.2988 7.50335 12.5262 6 15.1044 6C18.5427 6 21.3308 8.78815 21.3308 12.2264C21.3308 12.3195 21.3288 12.4121 21.3248 12.5042C23.3289 12.8077 24.8636 14.5368 24.8636 16.625C24.8636 18.9262 22.9973 20.7925 20.6961 20.7925H8.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10 21.5L8.7 24" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M15 20.8L13.7 23.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M20 21.5L18.7 24" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (weather?.weather === "cloudy") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className={stroke}>
+        <path d="M8 18.5C5.79086 18.5 4 16.7091 4 14.5C4 12.2909 5.79086 10.5 8 10.5C8.45439 10.5 8.89109 10.5758 9.29798 10.7155C10.2988 8.50335 12.5262 7 15.1044 7C18.5427 7 21.3308 9.78815 21.3308 13.2264C21.3308 13.3195 21.3288 13.4121 21.3248 13.5042C23.3289 13.8077 24.8636 15.5368 24.8636 17.625C24.8636 19.9262 22.9973 21.7925 20.6961 21.7925H8.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.2 8.4L9.4 7.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M14 5.6V4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M19.8 8.4L18.6 7.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className={stroke}>
+      <circle cx="14" cy="14" r="4.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M14 4V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M14 21.5V24" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M24 14H21.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M6.5 14H4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M20.9 7.1L19.1 8.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M8.9 19.1L7.1 20.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M20.9 20.9L19.1 19.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M8.9 8.9L7.1 7.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function WeatherPanel({ weather }: { weather: Weather | null }) {
+  return (
+    <div className="rounded-[28px] border border-ink/8 bg-white/80 px-5 py-5 lg:px-6 lg:py-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-coral/6">
+            <EditorialWeatherIcon weather={weather} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-[0.35em] font-black text-ink/35">Weather Window</p>
+            <p className="text-xl lg:text-2xl font-black font-serif italic text-ink">
+              {getWeatherLabel(weather)}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-2 text-ink">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-[0.28em] font-black text-ink/30">温度区间</p>
+            <p className="text-xl font-black font-serif italic">{getWeatherRange(weather)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-[0.28em] font-black text-ink/30">当前温度</p>
+            <p className="text-base font-black">{weather?.temp ?? DEFAULT_WEATHER.temp}°C</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-[0.28em] font-black text-ink/30">湿度</p>
+            <p className="text-base font-black">{weather?.humidity ?? DEFAULT_WEATHER.humidity}%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [step, setStep] = useState<"home" | "result">("home");
   const [isLoading, setIsLoading] = useState(false);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<LocationState>(() => buildFallbackLocationState());
   const [weather, setWeather] = useState<Weather | null>(null);
   const [age, setAge] = useState<string>("3-6");
   const [duration, setDuration] = useState<string>("2h");
@@ -193,6 +381,14 @@ export default function App() {
   const [result, setResult] = useState<PlanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tip, setTip] = useState<string>("别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。");
+  const [locationQuery, setLocationQuery] = useState<string>("");
+  const [locationNotice, setLocationNotice] = useState<string>(
+    "正在为你获取所在城市附近的位置。",
+  );
+  const [showManualLocation, setShowManualLocation] = useState(false);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [, setIsRequestingPreciseLocation] = useState(false);
+  const locationRef = useRef<LocationState>(location);
 
   const tips = [
     "别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。",
@@ -201,76 +397,271 @@ export default function App() {
     "在户外活动时，注意观察孩子的体力情况，适时休息。",
     "如果去公园，可以带上野餐垫，享受一段悠闲的亲子时光。",
     "带上免洗洗手液，随时保持手部卫生。",
-    "如果是去室内游乐场，记得给孩子穿上防滑袜。"
+    "如果是去室内游乐场，记得给孩子穿上防滑袜。",
   ];
 
-  // Get Location & Weather on Mount
-  useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          setCoords({ lat, lng });
-          fetchWeather(lat, lng);
-        },
-        () => setError("无法获取定位，请手动开启权限。")
-      );
-    }
-  }, []);
-
-  const fetchWeather = async (lat: number, lng: number) => {
+  async function fetchWeather(lat: number, lng: number) {
     try {
       const res = await fetch(`/api/weather?lat=${lat}&lng=${lng}`);
+      if (!res.ok) {
+        throw new Error("weather unavailable");
+      }
       const data = await res.json();
       setWeather(data);
-    } catch (e) {
-      console.error(e);
+    } catch (fetchError) {
+      console.error(fetchError);
+      setWeather((prev) => prev ?? DEFAULT_WEATHER);
     }
-  };
+  }
 
-  const generatePlan = async () => {
-    if (!coords) return;
+  function commitLocation(nextLocation: LocationState, notice?: string) {
+    if (!shouldReplaceLocation(locationRef.current, nextLocation)) {
+      return;
+    }
+
+    locationRef.current = nextLocation;
+    setLocation(nextLocation);
+    if (notice) {
+      setLocationNotice(notice);
+    }
+    setLocationQuery(nextLocation.name);
+  }
+
+  async function reverseGeocodeCurrentLocation(lat: number, lng: number) {
+    const res = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`);
+    if (!res.ok) {
+      throw new Error("reverse geocode unavailable");
+    }
+
+    return (await res.json()) as ReverseGeocodeResponse;
+  }
+
+  async function bootstrapLocation() {
+    try {
+      const res = await fetch("/api/bootstrap-location");
+      const data = await res.json();
+
+      if (!res.ok || !data?.lat || !data?.lng) {
+        throw new Error("bootstrap location unavailable");
+      }
+
+      const nextLocation = normalizeBootstrapLocationResult({
+        name: data.name,
+        lat: Number(data.lat),
+        lng: Number(data.lng),
+        city: data.city,
+        district: data.district,
+        province: data.province,
+      });
+
+      if (data.source === "fallback") {
+        setLocationNotice("暂时无法获取默认位置，请使用实时定位，或手动输入更准确的城市与区域。");
+        setShowManualLocation(true);
+        return;
+      }
+
+      if (shouldReplaceLocation(locationRef.current, nextLocation)) {
+        commitLocation(nextLocation, `已为你默认定位到 ${nextLocation.name} 附近，可直接生成方案，也可手动切换。`);
+      }
+    } catch (bootstrapError) {
+      console.warn("Unable to bootstrap location:", bootstrapError);
+      const fallbackLocation = buildFallbackLocationState();
+      if (shouldReplaceLocation(locationRef.current, fallbackLocation)) {
+        commitLocation(fallbackLocation, "暂时无法判断你所在城市，已先使用上海，也可以手动输入更准确的位置。");
+      }
+      setShowManualLocation(true);
+    }
+  }
+
+  function requestCurrentLocation() {
+    return new Promise<boolean>((resolve) => {
+      setIsRequestingPreciseLocation(true);
+
+      if (!("geolocation" in navigator)) {
+        setLocationNotice("当前浏览器无法读取定位，已先使用默认位置，也可以手动输入城市、商圈或具体地址。");
+        setShowManualLocation(true);
+        setIsRequestingPreciseLocation(false);
+        resolve(false);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const preciseLocation = await reverseGeocodeCurrentLocation(pos.coords.latitude, pos.coords.longitude);
+            const nextLocation = normalizeAutoLocationResult({
+              name:
+                [preciseLocation.city, preciseLocation.district].filter(Boolean).join(" ") ||
+                preciseLocation.name ||
+                "当前位置",
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              city: preciseLocation.city,
+              district: preciseLocation.district,
+              province: preciseLocation.province,
+            });
+
+            commitLocation(nextLocation, `已切换到你当前更精确的位置：${nextLocation.name}`);
+          } catch (reverseError) {
+            console.warn("Unable to reverse geocode current location:", reverseError);
+            const nextLocation = normalizeAutoLocationResult({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              name: "当前位置",
+            });
+            commitLocation(nextLocation, "已切换到你的精确位置。");
+          }
+
+          setShowManualLocation(false);
+          setIsRequestingPreciseLocation(false);
+          resolve(true);
+        },
+        () => {
+          setLocationNotice((current) =>
+            current.includes("默认定位")
+              ? `${current} 如果你愿意授权精确定位，结果会更贴近你当下的位置。`
+              : "定位未开启也没关系，已先使用默认位置。你仍然可以手动输入更准确的位置。",
+          );
+          setIsRequestingPreciseLocation(false);
+          resolve(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 120000,
+        },
+      );
+    });
+  }
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    async function initializeLocation() {
+      let savedManualLocation: LocationState | null = null;
+
+      try {
+        const saved = window.localStorage.getItem("papa-where-we-go:location");
+        if (saved) {
+          const parsed = JSON.parse(saved) as LocationState;
+          if (
+            Number.isFinite(parsed.lat) &&
+            Number.isFinite(parsed.lng) &&
+            parsed.name &&
+            shouldRestoreSavedLocation(parsed)
+          ) {
+            savedManualLocation = parsed;
+          }
+        }
+      } catch (storageError) {
+        console.warn("Unable to read saved location:", storageError);
+      }
+
+      const locatedPrecisely = await requestCurrentLocation();
+      if (locatedPrecisely) {
+        return;
+      }
+
+      if (savedManualLocation) {
+        commitLocation(savedManualLocation, `继续使用上次的位置：${savedManualLocation.name}`);
+        setShowManualLocation(false);
+        return;
+      }
+
+      void bootstrapLocation();
+    }
+
+    void initializeLocation();
+  }, []);
+
+  useEffect(() => {
+    fetchWeather(location.lat, location.lng);
+
+    try {
+      window.localStorage.setItem("papa-where-we-go:location", JSON.stringify(location));
+    } catch (storageError) {
+      console.warn("Unable to save location:", storageError);
+    }
+  }, [location]);
+
+  useEffect(() => {
+    setDuration(tripType === "today" ? "2h" : "1d");
+  }, [tripType]);
+
+  async function handleManualLocationSubmit() {
+    const query = locationQuery.trim();
+    if (!query) {
+      setError("请输入城市、商圈或具体地址，例如“上海 徐汇”或“上海徐汇滨江绿地”。");
+      return;
+    }
+
+    setIsResolvingLocation(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "无法解析该位置");
+      }
+
+      const nextLocation = normalizeManualLocationResult(data as GeocodeResponse);
+      commitLocation(nextLocation, `已切换到 ${nextLocation.name}`);
+      setShowManualLocation(false);
+    } catch (submitError: any) {
+      setError(submitError.message || "没有识别出这个位置，已继续使用当前出发点。");
+    } finally {
+      setIsResolvingLocation(false);
+    }
+  }
+
+  async function generatePlan() {
     setIsLoading(true);
     setError(null);
 
-    const startTime = Date.now();
+    const safeWeather = weather ?? { ...DEFAULT_WEATHER, city: buildLocationLabel(location) };
 
     try {
-      const poiRes = await fetch(`/api/pois?lat=${coords.lat}&lng=${coords.lng}`);
-      const pois: POI[] = await poiRes.json();
-      const filteredPois = pois.filter(p => p.rating >= 4);
-
       const planRes = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          location: coords,
-          weather,
+          location,
+          weather: safeWeather,
           age,
           duration,
-          pois: filteredPois.slice(0, 10)
-        })
+          tripType,
+        }),
       });
 
       const planData = await planRes.json();
       if (planData.error) throw new Error(planData.error);
-      
-      // Ensure loading takes at least 0.3s but not more than 1s total
-      const elapsed = Date.now() - startTime;
-      const waitTime = Math.max(300 - elapsed, 0);
-      await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 700)));
 
       setResult(planData);
       setTip(tips[Math.floor(Math.random() * tips.length)]);
       setStep("result");
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (e: any) {
-      setError(e.message || "生成计划失败，请重试。");
+    } catch (planError: any) {
+      setError(planError.message || "生成计划失败，请重试。");
     } finally {
       setIsLoading(false);
     }
-  };
+  }
+
+  const scopedLocationLabel = getDisplayLocationLabel(location, weather, tripType as TripType);
+  const resultFacts = result
+    ? getTripFacts({
+        tripType,
+        duration,
+        age,
+        weather,
+        scopedLocationLabel,
+        notice: result.notice,
+      })
+    : [];
 
   return (
     <div className="min-h-screen bg-paper text-ink font-sans selection:bg-brand-coral/10 relative">
@@ -286,8 +677,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="snap-container relative"
           >
-            {/* Screen 1: Cover */}
-            <section className="snap-section flex items-center px-10 lg:px-20 relative">
+            <section className="snap-section flex items-center px-6 lg:px-20 relative">
               <Header step="home" />
               <div className="grid grid-cols-1 lg:grid-cols-12 w-full items-center gap-10 lg:gap-20">
                 <div className="lg:col-span-6 space-y-12 text-left">
@@ -315,23 +705,14 @@ export default function App() {
                 </div>
 
                 <div className="lg:col-span-6 h-[40vh] lg:h-[60vh] relative flex items-center justify-center">
-                  <motion.div 
-                    whileHover={{ scale: 1.05, y: -10 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                    className="w-full h-full rounded-[40px] overflow-hidden shadow-2xl shadow-ink/5 bg-ink/5 cursor-pointer flex items-center justify-center"
-                  >
-                    <img 
-                      src="https://images.unsplash.com/photo-1533558701576-23c65e0272fb?q=80&w=1000&auto=format&fit=crop" 
-                      alt="Carousel"
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  </motion.div>
+                  <div className="w-full h-full rounded-[40px] overflow-hidden shadow-2xl shadow-ink/5 bg-[radial-gradient(circle_at_top,_rgba(255,118,118,0.14),_rgba(255,254,251,0.88)_62%)] border border-brand-coral/10 flex items-center justify-center p-6 lg:p-8">
+                    <CarouselIllustration />
+                  </div>
                 </div>
               </div>
-              
+
               <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
-                <motion.div 
+                <motion.div
                   animate={{ y: [0, 10, 0] }}
                   transition={{ repeat: Infinity, duration: 2 }}
                   className="text-ink/20"
@@ -341,8 +722,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* Screen 2: Decision */}
-            <section className="snap-section flex items-center px-10 lg:px-20 bg-paper text-ink relative overflow-hidden">
+            <section className="snap-section flex items-start lg:items-center px-6 lg:px-20 bg-paper text-ink relative overflow-hidden py-24 lg:py-0">
               <Header step="home" isScreen2 />
               
               {/* Vertical Rail Text (Editorial Style) */}
@@ -355,15 +735,10 @@ export default function App() {
               {/* Decorative background element */}
               <div className="absolute top-1/2 right-[-10%] -translate-y-1/2 w-[600px] h-[600px] bg-brand-coral/5 rounded-full blur-[120px] pointer-events-none" />
 
-              <div className="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-24 pt-16 lg:pt-24 relative z-10">
-                {/* Left Side: Context & Title */}
-                <div className="lg:col-span-5 space-y-8 lg:space-y-12 flex flex-col justify-center relative">
-                  {/* Subtle background block for differentiation */}
+              <div className="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 pt-20 lg:pt-24 pb-20 lg:pb-12 relative z-10">
+                <div className="lg:col-span-5 space-y-6 lg:space-y-8 flex flex-col justify-center relative">
                   <div className="absolute -inset-6 lg:-inset-10 bg-brand-coral/[0.01] rounded-[60px] -z-10 hidden lg:block" />
-                  
-                  {/* Vertical Rail Accent */}
                   <div className="absolute -left-10 top-0 bottom-0 w-px bg-brand-coral/20 hidden lg:block" />
-                  
                   <div className="space-y-6 lg:space-y-8">
                     <div className="space-y-3 lg:space-y-4">
                       <div className="flex items-center gap-3">
@@ -379,142 +754,181 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Weather Module - Moved to Left Side for better context */}
-                  {weather && (
-                    <motion.div 
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="inline-flex items-center gap-6 lg:gap-8 p-6 lg:p-8 bg-white rounded-[32px] border border-ink/5 shadow-xl shadow-ink/5"
-                    >
-                      <div className="flex items-center gap-5">
-                        <div className="w-14 h-14 rounded-2xl bg-brand-coral/10 flex items-center justify-center text-brand-coral">
-                          {weather.weather === "sunny" && <Sun size={32} />}
-                          {weather.weather === "cloudy" && <Cloud size={32} />}
-                          {weather.weather === "rain" && <CloudRain size={32} />}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[10px] uppercase tracking-widest font-black opacity-30">当前天气</span>
-                          <span className="text-xl font-black font-serif italic">{weather.weatherDesc || (weather.weather === "sunny" ? "晴" : weather.weather === "cloudy" ? "多云" : "雨")}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="h-12 w-px bg-ink/10" />
-
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase tracking-widest font-black opacity-30">温度区间</span>
-                        <span className="text-xl font-black font-serif italic">
-                          {weather.tempMin !== undefined && weather.tempMax !== undefined 
-                            ? `${weather.tempMin}° / ${weather.tempMax}°` 
-                            : `${weather.temp}°C`}
+                  <div className="rounded-[32px] border border-ink/8 bg-white/82 px-6 py-6 lg:px-7 lg:py-7 shadow-sm space-y-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-3 min-w-0">
+                        <span className="text-[10px] uppercase tracking-[0.35em] font-black text-ink/30 block">
+                          Starting Point
                         </span>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <div className="flex items-center gap-3 text-xl lg:text-2xl font-black min-w-0">
+                            <span className="border-b-2 border-ink/20 font-serif italic break-words">
+                              {scopedLocationLabel}
+                            </span>
+                            <MapPin className="text-brand-coral shrink-0" size={22} />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowManualLocation((prev) => !prev)}
+                            className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] font-black text-ink/40 transition-colors hover:text-brand-coral"
+                          >
+                            <Search size={14} />
+                            切换位置
+                          </button>
+                        </div>
+                        <p className="text-sm lg:text-base text-ink/45 leading-relaxed font-black">
+                          {locationNotice}
+                        </p>
                       </div>
-                    </motion.div>
-                  )}
+                    </div>
+
+                    <div
+                      className={cn(
+                        "grid transition-all duration-300",
+                        showManualLocation ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                      )}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="pt-1 space-y-3">
+                          <div className="flex flex-col md:flex-row gap-4">
+                            <input
+                              value={locationQuery}
+                              onChange={(event) => setLocationQuery(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  void handleManualLocationSubmit();
+                                }
+                              }}
+                              placeholder="输入城市、商圈或具体地址"
+                              className="flex-1 rounded-2xl border border-ink/10 bg-paper px-5 py-4 text-lg text-ink placeholder:text-ink/25 outline-none transition-colors focus:border-brand-coral/40"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleManualLocationSubmit()}
+                              disabled={isResolvingLocation}
+                              className="inline-flex items-center justify-center gap-3 rounded-2xl bg-ink px-6 py-4 text-sm uppercase tracking-[0.2em] font-black text-white transition-colors hover:bg-brand-coral disabled:opacity-50"
+                            >
+                              {isResolvingLocation ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+                              更新位置
+                            </button>
+                          </div>
+                          <p className="text-sm text-ink/40 leading-relaxed font-black">
+                            支持输入城市、商圈、具体地址或地标，例如“杭州 良渚”或“杭州良渚国家考古遗址公园”。
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <WeatherPanel weather={weather} />
                 </div>
 
-                {/* Right Side: Selection Controls */}
                 <div className="lg:col-span-7 relative">
-                  {/* Floating decorative card background */}
                   <div className="absolute inset-0 bg-brand-coral/[0.02] rounded-[60px] -rotate-2 scale-105 pointer-events-none" />
-                  
-                  <div className="relative bg-white p-8 lg:p-16 rounded-[48px] border border-ink/5 shadow-2xl shadow-ink/5 space-y-8 lg:space-y-12">
-                    {/* Location */}
-                    <div className="space-y-4">
-                      <label className="text-[10px] uppercase tracking-[0.4em] font-black opacity-30 block">Starting Point / 出发地点</label>
-                      <div className="flex items-center gap-4 text-2xl font-black group cursor-pointer">
-                        <div className="w-10 h-10 rounded-full bg-ink flex items-center justify-center text-white group-hover:bg-brand-coral transition-colors">
-                          <MapPin size={18} />
-                        </div>
-                        <span className="border-b-2 border-ink/10 group-hover:border-brand-coral transition-colors font-serif italic">
-                          {weather?.city || (coords ? "定位中..." : "获取定位中...")}
+                  <div className="relative bg-white p-8 lg:p-14 rounded-[40px] border border-ink/5 shadow-2xl shadow-ink/5 space-y-10">
+                    <div className="space-y-3">
+                      <span className="text-[10px] uppercase tracking-[0.45em] font-black text-ink/30 block">
+                        Decision Section
+                      </span>
+                      <h3 className="text-4xl lg:text-5xl font-black tracking-tight font-serif italic">
+                        开启行程
+                      </h3>
+                    </div>
+
+                    <div className="space-y-8">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-10">
+                        <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic min-w-[120px]">
+                          孩子年龄
                         </span>
-                      </div>
-                    </div>
-
-                    {/* Age */}
-                    <div className="space-y-4">
-                      <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">孩子年龄</label>
-                      <div className="flex flex-wrap gap-10 text-2xl font-black font-serif italic">
-                        {["0-3", "3-6", "6+"].map((a) => (
-                          <button
-                            key={a}
-                            onClick={() => setAge(a)}
-                            className={cn(
-                              "transition-all relative py-2",
-                              age === a ? "text-ink" : "text-ink/20 hover:text-ink/40"
-                            )}
-                          >
-                            {a}岁
-                            {age === a && (
-                              <motion.div layoutId="age-dot" className="absolute -bottom-1 left-0 right-0 h-1 bg-brand-coral rounded-full" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Trip Type & Duration Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                      {/* Trip Type */}
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">行程类型</label>
-                        <div className="flex flex-col gap-4 text-xl font-black font-serif italic">
-                          {[
-                            { id: "today", label: "当天遛娃" },
-                            { id: "weekend", label: "小长假" }
-                          ].map((t) => (
+                        <div className="flex flex-wrap gap-4 lg:gap-5 text-lg lg:text-xl font-black font-serif italic">
+                          {["0-3", "3-6", "6+"].map((currentAge) => (
                             <button
-                              key={t.id}
-                              onClick={() => setTripType(t.id)}
+                              key={currentAge}
+                              onClick={() => setAge(currentAge)}
                               className={cn(
-                                "flex items-center gap-3 transition-all",
-                                tripType === t.id ? "text-ink" : "text-ink/20 hover:text-ink/40"
+                                "transition-all relative rounded-full px-4 py-3 lg:px-5 lg:py-3 border text-left",
+                                age === currentAge
+                                  ? "text-ink border-brand-coral/30 bg-brand-coral/5"
+                                  : "text-ink/50 border-ink/10 hover:text-ink/70 hover:border-ink/20",
                               )}
                             >
-                              <div className={cn(
-                                "w-2 h-2 rounded-full transition-all",
-                                tripType === t.id ? "bg-brand-coral scale-125" : "bg-ink/10"
-                              )} />
-                              {t.label}
+                              {currentAge}岁
                             </button>
                           ))}
                         </div>
                       </div>
 
-                      {/* Duration */}
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">预计时长</label>
-                        <div className="flex flex-col gap-4 text-xl font-black font-serif italic">
-                          {(tripType === "today" ? ["1h", "2h", "half-day"] : ["1d", "2d1n", "3d2n"]).map((d) => (
-                            <button
-                              key={d}
-                              onClick={() => setDuration(d)}
-                              className={cn(
-                                "flex items-center gap-3 transition-all",
-                                duration === d ? "text-ink" : "text-ink/20 hover:text-ink/40"
-                              )}
-                            >
-                              <div className={cn(
-                                "w-2 h-2 rounded-full transition-all",
-                                duration === d ? "bg-brand-coral scale-125" : "bg-ink/10"
-                              )} />
-                              {d === "half-day" ? "半天" : d}
-                            </button>
-                          ))}
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:gap-10">
+                        <div className="space-y-4">
+                          <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic block">
+                            出行类型
+                          </span>
+                          <div className="flex flex-wrap gap-4 lg:gap-5 text-lg lg:text-xl font-black font-serif italic">
+                            {[
+                              { id: "today", label: "当天遛娃" },
+                              { id: "weekend", label: "小长假" },
+                            ].map((type) => (
+                              <button
+                                key={type.id}
+                                onClick={() => setTripType(type.id)}
+                                className={cn(
+                                  "transition-all relative rounded-full px-4 py-3 lg:px-5 lg:py-3 border text-left",
+                                  tripType === type.id
+                                    ? "text-ink border-brand-coral/30 bg-brand-coral/5"
+                                    : "text-ink/50 border-ink/10 hover:text-ink/70 hover:border-ink/20",
+                                )}
+                              >
+                                {type.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic block">
+                            预计时长
+                          </span>
+                          <div className="flex flex-wrap gap-4 lg:gap-5 text-lg lg:text-xl font-black font-serif italic">
+                            {(tripType === "today" ? ["1h", "2h", "half-day"] : ["1d", "2d1n", "3d2n"]).map((currentDuration) => (
+                              <button
+                                key={currentDuration}
+                                onClick={() => setDuration(currentDuration)}
+                                className={cn(
+                                  "transition-all relative rounded-full px-4 py-3 lg:px-5 lg:py-3 border text-left",
+                                  duration === currentDuration
+                                    ? "text-ink border-brand-coral/30 bg-brand-coral/5"
+                                    : "text-ink/50 border-ink/10 hover:text-ink/70 hover:border-ink/20",
+                                )}
+                              >
+                                {currentDuration === "half-day" ? "半天" : currentDuration}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {error && (
+                      <div className="rounded-[28px] border border-brand-coral/20 bg-brand-coral/5 px-6 py-5 text-base font-black text-brand-coral">
+                        {error}
+                      </div>
+                    )}
 
                     <button
-                      onClick={generatePlan}
-                      disabled={!coords || isLoading}
+                      onClick={() => void generatePlan()}
+                      disabled={isLoading || isResolvingLocation}
                       className="w-full py-8 bg-ink text-white flex items-center justify-center gap-6 group disabled:opacity-30 transition-all hover:bg-brand-coral rounded-[24px] shadow-xl shadow-ink/10"
                     >
                       {isLoading ? (
-                        <Loader2 className="animate-spin" size={24} />
+                        <>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span className="text-lg font-black uppercase tracking-[0.18em]">正在快速生成方案</span>
+                        </>
                       ) : (
                         <>
-                          <span className="text-xl font-black uppercase tracking-tight font-serif italic">去遛娃</span>
+                          <span className="text-xl font-black uppercase tracking-tight font-serif italic">
+                            看看行程怎么安排更合适
+                          </span>
                           <ArrowRight className="group-hover:translate-x-4 transition-transform" size={24} />
                         </>
                       )}
@@ -533,32 +947,100 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="pt-40 pb-40 px-10 lg:px-20 max-w-7xl mx-auto space-y-24"
           >
-            {/* Verdict & Full Plan */}
             <div className="space-y-12">
               <div className="space-y-8">
                 <h2 className="text-[8vw] lg:text-[6vw] font-black tracking-tighter text-ink leading-tight font-serif italic">
                   建议前往：{result.recommendations[0]?.name || "附近的公园"}
                 </h2>
-                <p className="text-2xl lg:text-3xl text-ink/60 max-w-4xl leading-relaxed font-black font-serif italic">
-                  {result.summary || (weather?.weather === "sunny" ? "阳光温和，适合前往开阔的户外场所。建议保持轻盈的节奏，在午后进行一场自然探索。" : "天气多云，光线柔和，非常适合户外摄影或长时间的公园漫步。")}
-                </p>
+                <div className="inline-flex flex-wrap items-center gap-3 rounded-full border border-ink/10 bg-white/80 px-5 py-3 text-sm font-black text-ink/55">
+                  <span>{scopedLocationLabel}</span>
+                  <span>{getWeatherLabel(weather)} {getWeatherRange(weather)}</span>
+                </div>
+                {result.notice && (
+                  <div className="max-w-4xl rounded-[28px] border border-brand-coral/20 bg-brand-coral/6 px-6 py-5 text-base lg:text-lg font-black text-brand-coral leading-relaxed">
+                    {result.notice}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 max-w-6xl">
+                  {resultFacts.map((fact) => (
+                    <div
+                      key={fact.label}
+                      className="rounded-[28px] border border-ink/8 bg-white/80 px-5 py-5 lg:px-6 lg:py-6 space-y-2"
+                    >
+                      <p className="text-[10px] uppercase tracking-[0.28em] font-black text-ink/30">{fact.label}</p>
+                      <p className="text-lg lg:text-xl font-black text-ink leading-relaxed">{fact.value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              {/* Full Plan Summary */}
-              <div className="p-12 bg-brand-coral/5 border border-brand-coral/20 text-ink rounded-[40px] shadow-sm space-y-10">
-                <label className="text-xs uppercase tracking-[0.4em] font-black opacity-30 block">建议完整方案</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-                  {result.plan.map((item, idx) => (
-                    <div key={idx} className="space-y-2 border-l-2 border-brand-coral/20 pl-6">
-                      <span className="text-sm font-black text-ink/30 uppercase tracking-[0.2em] font-serif italic">{item.time}</span>
-                      <p className="text-xl font-bold text-ink leading-tight font-serif italic">{item.action}</p>
+              <div className="p-8 lg:p-12 bg-brand-coral/5 border border-brand-coral/20 text-ink rounded-[40px] shadow-sm space-y-10">
+                <div className="space-y-3">
+                  <label className="text-xs uppercase tracking-[0.4em] font-black opacity-30 block">建议完整方案</label>
+                </div>
+                <div
+                  className={cn(
+                    "grid gap-8",
+                    (result.scheduleOptions?.length ?? 0) > 1 ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1 max-w-4xl",
+                  )}
+                >
+                  {(result.scheduleOptions?.length
+                    ? result.scheduleOptions
+                    : [
+                        {
+                          id: "depart-now" as const,
+                          label: "当前方案",
+                          description: "当前返回的默认行程。",
+                          blocks: [{ title: "当日", summary: "默认行程", items: result.plan }],
+                        },
+                      ]).map((option) => (
+                    <div
+                      key={option.id}
+                      className="rounded-[32px] border border-ink/8 bg-white/80 px-6 py-6 lg:px-8 lg:py-8 space-y-6"
+                    >
+                      <div className="space-y-2">
+                        <p className="text-xl lg:text-2xl font-black text-ink font-serif italic">{option.label}</p>
+                        <p className="text-base lg:text-lg font-black text-ink/60 leading-relaxed">
+                          {option.description}
+                        </p>
+                      </div>
+
+                      <div className="space-y-5">
+                        {option.blocks.map((block, blockIndex) => (
+                          <div
+                            key={`${option.id}-${block.title}-${blockIndex}`}
+                            className="rounded-[24px] border border-ink/6 bg-paper/70 px-5 py-5 space-y-5"
+                          >
+                            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                              <div className="space-y-1">
+                                <p className="text-sm uppercase tracking-[0.28em] font-black text-ink/30">
+                                  {block.title}
+                                </p>
+                                <p className="text-base font-black text-ink/55 leading-relaxed">{block.summary}</p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-4">
+                              {block.items.map((item, idx) => (
+                                <div key={`${option.id}-${block.title}-${idx}`} className="space-y-2 border-l-2 border-brand-coral/20 pl-5">
+                                  <span className="text-sm font-black text-ink/30 uppercase tracking-[0.2em] font-serif italic">
+                                    {item.time}
+                                  </span>
+                                  <p className="text-lg lg:text-xl font-bold text-ink leading-tight font-serif italic">
+                                    {item.action}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Recommendations Tiled */}
             <div className="space-y-16">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 border-b border-ink/10 pb-12 relative">
                 <div className="flex items-center gap-6">
@@ -585,41 +1067,45 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
                 {result.recommendations.map((rec, idx) => (
-                  <div key={idx} className="group space-y-6 bg-white p-10 rounded-[40px] border border-ink/5 hover:shadow-xl transition-all font-serif italic">
-                    <div className="flex justify-between items-start">
-                      <h4 className="text-2xl font-black tracking-normal text-ink group-hover:text-brand-coral transition-colors">{rec.name}</h4>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-ink/30">
+                  <div
+                    key={idx}
+                    className="group space-y-6 bg-white p-10 rounded-[40px] border border-ink/5 hover:shadow-xl transition-all font-serif italic"
+                  >
+                    <div className="flex justify-between items-start gap-4">
+                      <h4 className="text-2xl font-black tracking-normal text-ink group-hover:text-brand-coral transition-colors">
+                        {rec.name}
+                      </h4>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-ink/30 shrink-0">
                         {rec.distance}
                       </span>
                     </div>
-                    <p className="text-base text-ink/50 leading-relaxed font-black">
-                      {rec.reason}
-                    </p>
-                    <button className="flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.2em] text-brand-blue hover:gap-6 transition-all">
+                    <p className="text-base text-ink/50 leading-relaxed font-black">{rec.reason}</p>
+                    {rec.address && <p className="text-sm text-ink/35 font-black not-italic">{rec.address}</p>}
+                    <a
+                      href={buildNavigationUrl(rec, location)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.2em] text-brand-blue hover:gap-6 transition-all"
+                    >
                       <Navigation size={14} /> 导航前往
-                    </button>
+                    </a>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Bottom Section: Tips & Replan */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
-              {/* Tips */}
               <div className="p-12 bg-brand-yellow/5 rounded-[40px] border border-brand-yellow/20 relative overflow-hidden flex flex-col justify-center">
                 <div className="relative z-10 space-y-4">
                   <h5 className="text-[10px] uppercase tracking-[0.3em] font-black text-ink/40">遛娃小贴士</h5>
-                  <p className="text-lg text-ink/70 font-black leading-relaxed font-serif italic">
-                    {tip}
-                  </p>
+                  <p className="text-lg text-ink/70 font-black leading-relaxed font-serif italic">{tip}</p>
                 </div>
                 <div className="absolute -bottom-8 -right-8 opacity-[0.03] text-ink">
                   <Baby size={160} />
                 </div>
               </div>
 
-              {/* Replan */}
-              <button 
+              <button
                 onClick={() => {
                   setStep("home");
                   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -634,8 +1120,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <footer className="fixed bottom-0 left-0 right-0 z-50 px-10 py-10 flex justify-between items-center text-[8px] uppercase tracking-[0.5em] font-black text-ink/20 pointer-events-none">
-      </footer>
+      <footer className="fixed bottom-0 left-0 right-0 z-50 px-10 py-10 flex justify-between items-center text-[8px] uppercase tracking-[0.5em] font-black text-ink/20 pointer-events-none" />
     </div>
   );
 }
