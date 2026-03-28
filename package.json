@@ -1,12 +1,14 @@
 {
-  "name": "react-example",
+  "name": "papa-where-we-go",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "cf:dev": "npm run build && wrangler pages dev dist",
+    "cf:deploy": "npm run build && wrangler pages deploy dist --project-name papa-where-we-go",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest"
@@ -35,6 +37,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.78.0"
   }
 }

@@ -298,6 +298,100 @@ describe("planning helpers", () => {
     expect(filtered.map((item) => item.name)).toEqual(["良渚博物院"]);
   });
 
+  it("filters out office, junction, and lodging POIs even when nearby streets sound kid-friendly", () => {
+    const filtered = filterFamilyFriendlyPois([
+      {
+        name: "国泰海通证券杭州滨江科技馆街营业部",
+        lat: 30.21,
+        lng: 120.21,
+        rating: 4.6,
+        address: "滨江区科技馆街88号",
+        types: ["金融保险服务", "证券公司"],
+        distanceKm: 0.8,
+        district: "滨江区",
+      },
+      {
+        name: "江陵路与科技馆街交叉口",
+        lat: 30.212,
+        lng: 120.212,
+        rating: 4.5,
+        address: "滨江区科技馆街",
+        types: ["地名地址信息", "交通地名"],
+        distanceKm: 0.9,
+        district: "滨江区",
+      },
+      {
+        name: "隐宿公寓露民宿(科技馆街分店)",
+        lat: 30.213,
+        lng: 120.214,
+        rating: 4.7,
+        address: "滨江区科技馆街116号",
+        types: ["住宿服务", "民宿"],
+        distanceKm: 1.2,
+        district: "滨江区",
+      },
+      {
+        name: "杭州低碳科技馆",
+        lat: 30.215,
+        lng: 120.215,
+        rating: 4.8,
+        address: "滨江区江汉路1888号",
+        types: ["科教文化服务", "科技馆"],
+        distanceKm: 1.5,
+        district: "滨江区",
+      },
+    ]);
+
+    expect(filtered.map((item) => item.name)).toEqual(["杭州低碳科技馆"]);
+  });
+
+  it("applies the same family-friendly filtering rules across other cities too", () => {
+    const filtered = filterFamilyFriendlyPois([
+      {
+        name: "深圳科技馆街道办事处",
+        lat: 22.54,
+        lng: 114.06,
+        rating: 4.5,
+        address: "福田区科技馆路18号",
+        types: ["政府机构及社会团体", "街道办事处"],
+        distanceKm: 0.7,
+        district: "福田区",
+      },
+      {
+        name: "广州动物园路社区服务中心",
+        lat: 23.15,
+        lng: 113.33,
+        rating: 4.4,
+        address: "越秀区动物园路66号",
+        types: ["生活服务", "社区服务"],
+        distanceKm: 0.9,
+        district: "越秀区",
+      },
+      {
+        name: "上海自然博物馆",
+        lat: 31.23,
+        lng: 121.46,
+        rating: 4.8,
+        address: "静安区北京西路510号",
+        types: ["科教文化服务", "博物馆"],
+        distanceKm: 1.4,
+        district: "静安区",
+      },
+      {
+        name: "成都海昌极地海洋公园",
+        lat: 30.52,
+        lng: 104.07,
+        rating: 4.8,
+        address: "天府新区华阳海洋路68号",
+        types: ["风景名胜", "海洋馆"],
+        distanceKm: 6.5,
+        district: "双流区",
+      },
+    ]);
+
+    expect(filtered.map((item) => item.name)).toEqual(["上海自然博物馆", "成都海昌极地海洋公园"]);
+  });
+
   it("builds deterministic recommendations directly from the ranked realtime POIs", () => {
     const result = buildRealtimePlan(
       {
@@ -510,6 +604,44 @@ describe("planning helpers", () => {
     expect(result.scheduleOptions[0].description).toContain("隔天");
   });
 
+  it("treats after-midnight same-day requests as night rest time too", () => {
+    const result = buildRealtimePlan(
+      {
+        ...context,
+        duration: "2h",
+        currentTime: "2026-03-29T00:18:00+08:00",
+        locationLabel: "杭州市 滨江区",
+        district: "滨江区",
+      },
+      [
+        {
+          name: "杭州低碳科技馆",
+          lat: 30.215,
+          lng: 120.215,
+          rating: 4.8,
+          address: "滨江区江汉路1888号",
+          types: ["museum", "science"],
+          distanceKm: 1.5,
+          district: "滨江区",
+        },
+        {
+          name: "滨江儿童公园",
+          lat: 30.214,
+          lng: 120.216,
+          rating: 4.7,
+          address: "滨江区闻涛路",
+          types: ["park", "playground"],
+          distanceKm: 1.7,
+          district: "滨江区",
+        },
+      ],
+    );
+
+    expect(result.notice).toContain("现在夜深了");
+    expect(result.scheduleOptions).toHaveLength(1);
+    expect(result.scheduleOptions[0].id).toBe("regular-rhythm");
+  });
+
   it("returns two schedule options for realtime plans", () => {
     const result = buildRealtimePlan(
       {
@@ -691,6 +823,75 @@ describe("planning helpers", () => {
     expect(result.scheduleOptions?.[0].blocks).toHaveLength(3);
     expect(result.scheduleOptions?.[0].blocks.map((block) => block.title)).toEqual(["D1", "D2", "D3"]);
     expect(result.scheduleOptions?.[0].blocks.every((block) => block.items.length >= 2)).toBe(true);
+  });
+
+  it("does not wrap the first day lead POI back into the tail of a 2d1n itinerary", () => {
+    const result = buildRealtimePlan(
+      {
+        ...context,
+        tripType: "weekend",
+        duration: "2d1n",
+        locationLabel: "杭州市 滨江区",
+        district: undefined,
+        currentTime: "2026-03-29T11:18:00+08:00",
+      },
+      [
+        {
+          name: "杭州低碳科技馆",
+          lat: 30.215,
+          lng: 120.215,
+          rating: 4.8,
+          address: "滨江区江汉路1888号",
+          types: ["museum", "science"],
+          distanceKm: 1.5,
+          district: "滨江区",
+        },
+        {
+          name: "杭州长乔极地海洋公园",
+          lat: 30.15,
+          lng: 120.25,
+          rating: 4.8,
+          address: "萧山区湘湖路",
+          types: ["aquarium"],
+          distanceKm: 15,
+          district: "萧山区",
+        },
+        {
+          name: "杭州少年儿童公园",
+          lat: 30.24,
+          lng: 120.15,
+          rating: 4.7,
+          address: "西湖区虎跑路",
+          types: ["park", "playground"],
+          distanceKm: 13,
+          district: "西湖区",
+        },
+        {
+          name: "中国动漫博物馆",
+          lat: 30.19,
+          lng: 120.2,
+          rating: 4.7,
+          address: "滨江区白马湖路",
+          types: ["museum"],
+          distanceKm: 4.3,
+          district: "滨江区",
+        },
+      ],
+    );
+
+    const firstAction = result.scheduleOptions?.[0].blocks[0].items[0].action ?? "";
+    const lastBlockItems = result.scheduleOptions?.[0].blocks.at(-1)?.items ?? [];
+    const lastAction = lastBlockItems.at(-1)?.action ?? "";
+    const namedDestinations = [
+      "杭州低碳科技馆",
+      "杭州长乔极地海洋公园",
+      "杭州少年儿童公园",
+      "中国动漫博物馆",
+    ];
+    const leadDestination = namedDestinations.find((name) => firstAction.includes(name));
+
+    expect(leadDestination).toBeDefined();
+    expect(lastAction).not.toContain(leadDestination as string);
   });
 
   it("shifts destination focus when the trip changes from a short local outing to 3d2n", () => {

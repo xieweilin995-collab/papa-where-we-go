@@ -106,6 +106,12 @@ const DESTINATION_KEYWORDS = [
 const NEIGHBORHOOD_KEYWORDS = ["邻里", "社区", "口袋", "街心", "小区", "playground"];
 const FAMILY_NEGATIVE_KEYWORDS = [
   "未命名场所",
+  "证券",
+  "营业部",
+  "银行",
+  "金融",
+  "基金",
+  "保险",
   "建材",
   "五金",
   "家具",
@@ -116,6 +122,18 @@ const FAMILY_NEGATIVE_KEYWORDS = [
   "学校",
   "培训",
   "办公",
+  "办事处",
+  "街道办",
+  "服务中心",
+  "社区服务",
+  "社区中心",
+  "行政中心",
+  "政务",
+  "派出所",
+  "居委会",
+  "村委会",
+  "工会",
+  "社会团体",
   "石像",
   "雕像",
   "雕塑",
@@ -132,6 +150,10 @@ const FAMILY_NEGATIVE_KEYWORDS = [
   "便利店",
   "公交站",
   "地铁站",
+  "路口",
+  "交叉口",
+  "丁字路口",
+  "十字路口",
   "生活馆",
   "会所",
   "会员",
@@ -148,6 +170,12 @@ const FAMILY_NEGATIVE_KEYWORDS = [
   "驿站",
   "服务处",
   "物业",
+  "公寓",
+  "民宿",
+  "酒店",
+  "宾馆",
+  "客栈",
+  "酒店式公寓",
   "新广场",
   "城市广场",
 ];
@@ -395,11 +423,12 @@ export function selectPlanningCandidates(pois: RankedPoi[], limit: number, conte
 export function filterFamilyFriendlyPois(pois: RankedPoi[]): RankedPoi[] {
   return pois.filter((poi) => {
     const joinedText = `${poi.name} ${poi.address} ${poi.types.join(" ")}`;
+    const signalText = `${poi.name} ${poi.types.join(" ")}`;
     if (inferPrivatePenalty(poi) > 0) {
       return false;
     }
 
-    return hasKeyword(joinedText, FAMILY_POSITIVE_KEYWORDS);
+    return hasKeyword(signalText, FAMILY_POSITIVE_KEYWORDS) || hasKeyword(joinedText, DESTINATION_KEYWORDS);
   });
 }
 
@@ -416,7 +445,7 @@ function shouldOfferDepartNow(context: PlanningContext): boolean {
   }
 
   const hour = getReferenceTime(context).getHours();
-  return hour < 21;
+  return hour >= 6 && hour < 21;
 }
 
 function buildPlanningNotice(context: PlanningContext): string | undefined {
@@ -425,7 +454,7 @@ function buildPlanningNotice(context: PlanningContext): string | undefined {
   }
 
   const hour = getReferenceTime(context).getHours();
-  if (hour >= 21) {
+  if (hour >= 21 || hour < 6) {
     return "现在夜深了，宝宝应该进入梦乡。下面优先给你隔天白天更适合执行的方案。";
   }
 
@@ -730,7 +759,20 @@ function pickPoi(pois: RankedPoi[], index: number): RankedPoi | undefined {
     return undefined;
   }
 
-  return pois[index % pois.length];
+  return pois[index];
+}
+
+function getBlockPoiIndexes(
+  context: PlanningContext,
+  dayIndex: number,
+): [number, number, number] {
+  if (context.tripType === "weekend") {
+    const baseIndex = dayIndex * 3;
+    return [baseIndex, baseIndex + 1, baseIndex + 2];
+  }
+
+  const baseIndex = dayIndex * 2;
+  return [baseIndex, baseIndex + 1, baseIndex + 2];
 }
 
 function buildMultiStopText(primary: RankedPoi | undefined, secondary: RankedPoi | undefined, fallback: string): string {
@@ -751,9 +793,10 @@ function buildBlockItems(
   const start = buildBaseStart(context, mode, dayIndex);
   const modePois = buildModeSpecificPoiList(context, pois, mode);
   const liveOffsets = buildLiveOffsets(context, mode, block.offsets, dayIndex);
-  const primary = pickPoi(modePois, dayIndex * 2);
-  const secondary = pickPoi(modePois, dayIndex * 2 + 1);
-  const tertiary = pickPoi(modePois, dayIndex * 2 + 2);
+  const [primaryIndex, secondaryIndex, tertiaryIndex] = getBlockPoiIndexes(context, dayIndex);
+  const primary = pickPoi(modePois, primaryIndex);
+  const secondary = pickPoi(modePois, secondaryIndex);
+  const tertiary = pickPoi(modePois, tertiaryIndex);
   const exploratoryStop = buildMultiStopText(secondary, tertiary, primary?.name || "附近合适地点");
 
   return liveOffsets.map((offset, itemIndex) => {
@@ -879,7 +922,9 @@ function buildScheduleOptions(context: PlanningContext, pois: RankedPoi[]): Sche
 }
 
 export function buildRealtimePlan(context: PlanningContext, pois: RankedPoi[]): PlanResultShape {
-  const topPois = prioritizeRecommendationPois(context, pois).slice(0, context.tripType === "today" ? 3 : 4);
+  const recommendationLimit =
+    context.tripType === "today" ? 3 : context.duration === "3d2n" ? 6 : context.duration === "2d1n" ? 5 : 4;
+  const topPois = prioritizeRecommendationPois(context, pois).slice(0, recommendationLimit);
   const primary = topPois[0];
   const summaryLead = buildWeatherLead(context.weather);
   const notice = buildPlanningNotice(context);
@@ -913,7 +958,9 @@ export function buildRealtimePlan(context: PlanningContext, pois: RankedPoi[]): 
 }
 
 export function buildFallbackPlan(context: PlanningContext, pois: RankedPoi[]): PlanResultShape {
-  const topPois = prioritizeRecommendationPois(context, pois).slice(0, 3);
+  const recommendationLimit =
+    context.tripType === "today" ? 3 : context.duration === "3d2n" ? 6 : context.duration === "2d1n" ? 5 : 4;
+  const topPois = prioritizeRecommendationPois(context, pois).slice(0, recommendationLimit);
   const primary = topPois[0];
   const notice = buildPlanningNotice(context);
   const recommendationReason =

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight,
+  Baby,
   ChevronDown,
   Loader2,
   RefreshCw,
@@ -182,7 +183,7 @@ const Header = ({ step, isScreen2 }: { step: "home" | "result"; isScreen2?: bool
   return (
     <header
       className={cn(
-        "absolute top-0 left-0 right-0 z-50 px-10 py-10 flex justify-between items-center transition-colors duration-500",
+        "absolute top-0 left-0 right-0 z-50 px-10 py-10 flex items-center transition-colors duration-500",
         "text-ink",
       )}
     >
@@ -200,14 +201,6 @@ const Header = ({ step, isScreen2 }: { step: "home" | "result"; isScreen2?: bool
             Editorial Guide
           </span>
         </div>
-      </div>
-      <div
-        className={cn(
-          "hidden md:flex gap-12 text-[10px] uppercase tracking-[0.4em] font-black",
-          "text-ink/10",
-        )}
-      >
-        <span>v2.5 High Fidelity</span>
       </div>
     </header>
   );
@@ -363,6 +356,7 @@ export default function App() {
   const [tripType, setTripType] = useState<string>("today");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tip, setTip] = useState<string>("别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。");
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [locationNotice, setLocationNotice] = useState<string>(
     "正在为你获取所在城市附近的位置。",
@@ -371,6 +365,15 @@ export default function App() {
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const [, setIsRequestingPreciseLocation] = useState(false);
   const locationRef = useRef<LocationState>(location);
+  const tips = [
+    "别忘了带上宝宝最喜欢的玩具！今日紫外线较强，户外活动请做好防晒。",
+    "记得多带一套备用衣服，以防孩子玩耍时弄脏或弄湿。",
+    "随身准备一些健康的小零食和饮用水，方便随时补充能量。",
+    "户外活动时多观察孩子体力变化，感觉累了就及时放慢节奏。",
+    "如果要在公园停留久一点，带上野餐垫会更从容。",
+    "带一小瓶免洗洗手液，临时补给和清洁都会方便很多。",
+    "如果去室内游乐场，记得提前准备防滑袜。",
+  ];
 
   async function fetchWeather(lat: number, lng: number) {
     try {
@@ -612,6 +615,7 @@ export default function App() {
       const planData = await planRes.json();
       if (planData.error) throw new Error(planData.error);
 
+      setTip(tips[Math.floor(Math.random() * tips.length)]);
       setResult(planData);
       setStep("result");
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -640,8 +644,8 @@ export default function App() {
           >
             <section className="snap-section flex items-center px-6 lg:px-20 relative">
               <Header step="home" />
-              <div className="grid grid-cols-1 lg:grid-cols-12 w-full items-center gap-10 lg:gap-20">
-                <div className="lg:col-span-6 space-y-12 text-left">
+              <div className="grid grid-cols-1 lg:grid-cols-12 w-full items-center gap-8 lg:gap-12 max-w-6xl mx-auto">
+                <div className="lg:col-span-5 lg:col-start-2 space-y-9 text-left">
                   <div className="space-y-8">
                     <h2 className="text-[10vw] lg:text-[7vw] font-black leading-tight tracking-tighter text-ink font-serif italic">
                       去哪遛娃
@@ -652,8 +656,8 @@ export default function App() {
                         为每个孩子寻找<span className="text-brand-coral">快乐源泉</span>。
                       </p>
                       <div className="flex items-center gap-4 pt-4">
-                        <span className="text-[10px] uppercase tracking-[0.4em] font-black opacity-30">Age Range</span>
-                        <div className="flex gap-4 text-sm font-black text-brand-coral font-serif italic">
+                        <span className="text-xs uppercase tracking-[0.28em] font-black opacity-35">Age Range</span>
+                        <div className="flex gap-4 text-[15px] lg:text-base font-black text-brand-coral font-serif italic">
                           <span>0-3</span>
                           <span className="opacity-20">/</span>
                           <span>3-6</span>
@@ -665,7 +669,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="lg:col-span-6 h-[40vh] lg:h-[60vh] relative flex items-center justify-center">
+                <div className="lg:col-span-5 h-[40vh] lg:h-[58vh] relative flex items-center justify-center">
                   <div className="w-full h-full rounded-[40px] overflow-hidden shadow-2xl shadow-ink/5 bg-[radial-gradient(circle_at_top,_rgba(255,118,118,0.14),_rgba(255,254,251,0.88)_62%)] border border-brand-coral/10 flex items-center justify-center p-6 lg:p-8">
                     <CarouselIllustration />
                   </div>
@@ -685,18 +689,11 @@ export default function App() {
 
             <section className="snap-section flex items-start lg:items-center px-6 lg:px-20 bg-paper text-ink relative overflow-hidden py-24 lg:py-0">
               <Header step="home" isScreen2 />
-              
-              {/* Vertical Rail Text (Editorial Style) */}
-              <div className="absolute left-6 top-1/2 -translate-y-1/2 hidden xl:flex flex-col items-center gap-12 opacity-10 pointer-events-none">
-                <span className="writing-vertical-rl rotate-180 text-[10px] font-black uppercase tracking-[0.8em]">Discovery Phase</span>
-                <div className="w-px h-24 bg-ink" />
-                <span className="text-[10px] font-black">02</span>
-              </div>
 
               {/* Decorative background element */}
               <div className="absolute top-1/2 right-[-10%] -translate-y-1/2 w-[600px] h-[600px] bg-brand-coral/5 rounded-full blur-[120px] pointer-events-none" />
 
-              <div className="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 pt-20 lg:pt-24 pb-20 lg:pb-12 relative z-10">
+              <div className="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16 pt-20 lg:pt-24 pb-20 lg:pb-12 relative z-10">
                 <div className="lg:col-span-5 space-y-6 lg:space-y-8 flex flex-col justify-center relative">
                   <div className="absolute -inset-6 lg:-inset-10 bg-brand-coral/[0.01] rounded-[60px] -z-10 hidden lg:block" />
                   <div className="absolute -left-10 top-0 bottom-0 w-px bg-brand-coral/20 hidden lg:block" />
@@ -887,9 +884,7 @@ export default function App() {
                         </>
                       ) : (
                         <>
-                          <span className="text-xl font-black uppercase tracking-tight font-serif italic">
-                            看看行程怎么安排更合适
-                          </span>
+                          <span className="text-xl font-black uppercase tracking-tight font-serif italic">去遛娃</span>
                           <ArrowRight className="group-hover:translate-x-4 transition-transform" size={24} />
                         </>
                       )}
@@ -947,12 +942,14 @@ export default function App() {
                       key={option.id}
                       className="rounded-[28px] border border-ink/8 bg-paper/55 px-6 py-6 lg:px-7 lg:py-7 space-y-6"
                     >
-                      <div className="space-y-2">
-                        <p className="text-xl lg:text-2xl font-black text-ink font-serif italic">{option.label}</p>
-                        <p className="text-base lg:text-lg font-black text-ink/60 leading-relaxed">
-                          {option.description}
-                        </p>
-                      </div>
+                      {(result.scheduleOptions?.length ?? 0) > 1 && (
+                        <div className="space-y-2">
+                          <p className="text-xl lg:text-2xl font-black text-ink font-serif italic">{option.label}</p>
+                          <p className="text-base lg:text-lg font-black text-ink/60 leading-relaxed">
+                            {option.description}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="space-y-5">
                         {option.blocks.map((block, blockIndex) => (
@@ -993,19 +990,35 @@ export default function App() {
               </div>
             </div>
 
-            <div className="space-y-10">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.5em] font-black text-ink/40">精选推荐地点</label>
-                <h3 className="text-3xl lg:text-4xl font-black tracking-tight font-serif italic text-ink">
-                  再挑几处顺路可去的地方
-                </h3>
+            <div className="space-y-16">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 border-b border-ink/10 pb-12 relative">
+                <div className="flex items-center gap-6">
+                  <div className="w-16 h-16 rounded-2xl bg-brand-coral flex items-center justify-center text-white shadow-xl shadow-brand-coral/20">
+                    <Navigation size={32} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-[0.5em] font-black text-ink/40">精选推荐地点</label>
+                    <h3 className="text-3xl lg:text-4xl font-black tracking-tight font-serif italic">
+                      Kids <span className="text-brand-coral">Playground</span>
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="hidden md:flex items-center gap-4">
+                  <span className="text-[10px] uppercase tracking-[0.5em] font-black opacity-20">Trendy Selection</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="w-2 h-2 rounded-full bg-brand-coral/20" />
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
                 {result.recommendations.map((rec, idx) => (
                   <div
                     key={idx}
-                    className="group space-y-5 bg-white p-8 rounded-[28px] border border-ink/8 hover:shadow-lg transition-all font-serif italic"
+                    className="group space-y-6 bg-white p-10 rounded-[40px] border border-ink/5 hover:shadow-xl transition-all font-serif italic"
                   >
                     <div className="flex justify-between items-start gap-4">
                       <h4 className="text-2xl font-black tracking-normal text-ink group-hover:text-brand-coral transition-colors">
@@ -1015,7 +1028,8 @@ export default function App() {
                         {rec.distance}
                       </span>
                     </div>
-                    {rec.address && <p className="text-sm text-ink/45 font-black not-italic">{rec.address}</p>}
+                    <p className="text-base text-ink/50 leading-relaxed font-black">{rec.reason}</p>
+                    {rec.address && <p className="text-sm text-ink/35 font-black not-italic">{rec.address}</p>}
                     <a
                       href={buildNavigationUrl(rec, location)}
                       target="_blank"
@@ -1029,7 +1043,17 @@ export default function App() {
               </div>
             </div>
 
-            <div className="max-w-xl">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+              <div className="p-10 lg:p-12 bg-brand-yellow/5 rounded-[32px] border border-brand-yellow/20 relative overflow-hidden flex flex-col justify-center">
+                <div className="relative z-10 space-y-4">
+                  <h5 className="text-[10px] uppercase tracking-[0.3em] font-black text-ink/40">温馨提醒</h5>
+                  <p className="text-lg text-ink/70 font-black leading-relaxed font-serif italic">{tip}</p>
+                </div>
+                <div className="absolute -bottom-8 -right-8 opacity-[0.03] text-ink">
+                  <Baby size={160} />
+                </div>
+              </div>
+
               <button
                 onClick={() => {
                   setStep("home");
