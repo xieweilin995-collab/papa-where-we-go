@@ -44,3 +44,7 @@
   width: 100%;
   position: relative;
 }
+
+.writing-vertical-rl {
+  writing-mode: vertical-rl;
+}

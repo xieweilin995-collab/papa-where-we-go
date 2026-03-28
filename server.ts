@@ -53,13 +53,25 @@ app.get("/api/weather", async (req, res) => {
       );
       const data = response.data;
       let weatherStatus: "sunny" | "cloudy" | "rain" = "sunny";
+      let weatherDesc = "晴";
       const mainCode = data.weather[0].id;
-      if (mainCode >= 200 && mainCode < 600) weatherStatus = "rain";
-      else if (mainCode > 800) weatherStatus = "cloudy";
+      if (mainCode >= 200 && mainCode < 600) {
+        weatherStatus = "rain";
+        weatherDesc = "雨";
+      } else if (mainCode > 800) {
+        weatherStatus = "cloudy";
+        weatherDesc = "多云";
+      } else if (mainCode === 800) {
+        weatherStatus = "sunny";
+        weatherDesc = "晴";
+      }
 
       return res.json({
         temp: Math.round(data.main.temp),
+        tempMin: Math.round(data.main.temp_min),
+        tempMax: Math.round(data.main.temp_max),
         weather: weatherStatus,
+        weatherDesc: weatherDesc,
         humidity: data.main.humidity,
         city: cityName || data.name,
         source: "openweather"
@@ -78,30 +90,36 @@ app.get("/api/weather", async (req, res) => {
   // Fallback to Open-Meteo (Free, No Key)
   try {
     const response = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code`
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
     );
     const current = response.data.current;
+    const daily = response.data.daily;
     
     if (!current) {
       throw new Error("Open-Meteo response missing current data");
     }
 
     let weatherStatus: "sunny" | "cloudy" | "rain" = "sunny";
+    let weatherDesc = "晴";
     const code = current.weather_code;
     // WMO Weather interpretation codes (WW)
-    // 0: Clear sky -> sunny
-    // 1, 2, 3: Mainly clear, partly cloudy, and overcast -> cloudy
-    // 45, 48: Fog -> cloudy
-    // 51, 53, 55: Drizzle -> rain
-    // 61, 63, 65: Rain -> rain
-    // 71, 73, 75: Snow -> rain
-    // 80, 81, 82: Rain showers -> rain
-    if (code >= 51) weatherStatus = "rain";
-    else if (code >= 1) weatherStatus = "cloudy";
+    if (code >= 51) {
+      weatherStatus = "rain";
+      weatherDesc = "雨";
+    } else if (code >= 1) {
+      weatherStatus = "cloudy";
+      weatherDesc = "多云";
+    } else {
+      weatherStatus = "sunny";
+      weatherDesc = "晴";
+    }
 
     res.json({
       temp: Math.round(current.temperature_2m),
+      tempMin: daily ? Math.round(daily.temperature_2m_min[0]) : Math.round(current.temperature_2m - 2),
+      tempMax: daily ? Math.round(daily.temperature_2m_max[0]) : Math.round(current.temperature_2m + 5),
       weather: weatherStatus,
+      weatherDesc: weatherDesc,
       humidity: current.relative_humidity_2m || 50,
       city: cityName || "未知地点",
       source: "open-meteo"

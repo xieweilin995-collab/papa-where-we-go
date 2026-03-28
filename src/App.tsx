@@ -22,7 +22,10 @@ import { cn } from "./lib/utils";
 
 interface Weather {
   temp: number;
+  tempMin?: number;
+  tempMax?: number;
   weather: "rain" | "sunny" | "cloudy";
+  weatherDesc?: string;
   humidity: number;
   city?: string;
 }
@@ -54,6 +57,35 @@ interface PlanResult {
 }
 
 // --- Components ---
+
+// --- Constants ---
+
+const COPY_SCHEMES = [
+  {
+    title: <>周末<br /><span className="text-brand-coral">逃离计划</span></>,
+    desc: "暂别繁琐的家务，关掉不停响动的手机。这个周末，只负责和孩子一起大笑。"
+  },
+  {
+    title: <>小小<br /><span className="text-brand-coral">探险家</span></>,
+    desc: "世界很大，好奇心是最好的指南针。带上水壶和梦想，出发去发现藏在城市里的秘密。"
+  },
+  {
+    title: <>自然<br /><span className="text-brand-coral">的拥抱</span></>,
+    desc: "泥土的味道，草地的触感。让孩子在自然的怀抱中，学会尊重生命，感受万物生长的力量。"
+  },
+  {
+    title: <>创意<br /><span className="text-brand-coral">实验室</span></>,
+    desc: "没有标准答案，只有无限可能。在玩耍中碰撞灵感，让每一个奇思妙想都闪闪发光。"
+  },
+  {
+    title: <>成长<br /><span className="text-brand-coral">日记本</span></>,
+    desc: "记录下每一次勇敢的迈步，每一个灿烂的笑容。这些平凡的瞬间，终将汇成最动人的成长史诗。"
+  },
+  {
+    title: <>纯真<br /><span className="text-brand-coral">童年</span></>,
+    desc: "守护那份最原始的好奇，珍藏那颗最纯净的童心。在陪伴中，我们也重新做回了孩子。"
+  }
+];
 
 const GridBackground = () => (
   <div className="absolute inset-0 z-[-1] pointer-events-none overflow-hidden h-full">
@@ -263,13 +295,21 @@ export default function App() {
                     <h2 className="text-[10vw] lg:text-[7vw] font-black leading-tight tracking-tighter text-ink font-serif italic">
                       去哪遛娃
                     </h2>
-                    <div className="space-y-6">
-                      <p className="text-xl lg:text-2xl text-ink/60 max-w-xl leading-relaxed font-black font-serif italic">
-                        为每位家长提供不同场景的遛娃方案，为每个孩子寻找快乐源泉。
+                    <div className="space-y-8 max-w-xl">
+                      <p className="text-xl lg:text-2xl text-ink/60 leading-relaxed font-black font-serif italic">
+                        为每位家长提供<span className="text-brand-coral">不同场景</span>的遛娃方案，<br />
+                        为每个孩子寻找<span className="text-brand-coral">快乐源泉</span>。
                       </p>
-                      <p className="text-lg lg:text-xl text-brand-coral font-black tracking-[0.2em] uppercase font-serif italic">
-                        0-3岁 / 3-6岁 / 6岁+
-                      </p>
+                      <div className="flex items-center gap-4 pt-4">
+                        <span className="text-[10px] uppercase tracking-[0.4em] font-black opacity-30">Age Range</span>
+                        <div className="flex gap-4 text-sm font-black text-brand-coral font-serif italic">
+                          <span>0-3</span>
+                          <span className="opacity-20">/</span>
+                          <span>3-6</span>
+                          <span className="opacity-20">/</span>
+                          <span>6+</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -302,111 +342,185 @@ export default function App() {
             </section>
 
             {/* Screen 2: Decision */}
-            <section className="snap-section flex items-center px-10 lg:px-20 bg-paper text-ink relative">
+            <section className="snap-section flex items-center px-10 lg:px-20 bg-paper text-ink relative overflow-hidden">
               <Header step="home" isScreen2 />
+              
+              {/* Vertical Rail Text (Editorial Style) */}
+              <div className="absolute left-6 top-1/2 -translate-y-1/2 hidden xl:flex flex-col items-center gap-12 opacity-10 pointer-events-none">
+                <span className="writing-vertical-rl rotate-180 text-[10px] font-black uppercase tracking-[0.8em]">Discovery Phase</span>
+                <div className="w-px h-24 bg-ink" />
+                <span className="text-[10px] font-black">02</span>
+              </div>
 
-              <div className="max-w-5xl w-full mx-auto space-y-16 pt-32">
-                <div className="space-y-4">
-                  <span className="text-[10px] uppercase tracking-[0.5em] font-bold opacity-60">Decision Section</span>
-                  <h3 className="text-4xl lg:text-5xl font-black tracking-tight font-serif italic">开启行程</h3>
-                </div>
+              {/* Decorative background element */}
+              <div className="absolute top-1/2 right-[-10%] -translate-y-1/2 w-[600px] h-[600px] bg-brand-coral/5 rounded-full blur-[120px] pointer-events-none" />
 
-                <div className="space-y-12">
-                  {/* Location */}
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-12">
-                    <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic min-w-[140px]">你在</span>
-                    <div className="flex items-center gap-4 text-xl lg:text-2xl font-black group cursor-pointer">
-                      <span className="border-b-2 border-ink/30 group-hover:border-brand-coral transition-colors font-serif italic">
-                        {weather?.city || (coords ? "定位中..." : "获取定位中...")}
-                      </span>
-                      <MapPin className="text-brand-coral" size={24} />
+              <div className="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-24 pt-16 lg:pt-24 relative z-10">
+                {/* Left Side: Context & Title */}
+                <div className="lg:col-span-5 space-y-8 lg:space-y-12 flex flex-col justify-center relative">
+                  {/* Subtle background block for differentiation */}
+                  <div className="absolute -inset-6 lg:-inset-10 bg-brand-coral/[0.01] rounded-[60px] -z-10 hidden lg:block" />
+                  
+                  {/* Vertical Rail Accent */}
+                  <div className="absolute -left-10 top-0 bottom-0 w-px bg-brand-coral/20 hidden lg:block" />
+                  
+                  <div className="space-y-6 lg:space-y-8">
+                    <div className="space-y-3 lg:space-y-4">
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-px bg-brand-coral" />
+                        <span className="text-[10px] uppercase tracking-[0.5em] font-black text-brand-coral">Discovery</span>
+                      </div>
+                      <h3 className="text-5xl lg:text-7xl font-black tracking-tight font-serif italic leading-[1.1]">
+                        专属<br /><span className="text-brand-coral">遛娃方案</span>
+                      </h3>
                     </div>
+                    <p className="text-lg lg:text-xl text-ink/60 font-black font-serif italic max-w-md leading-relaxed">
+                      守护那份最原始的好奇，珍藏那颗最纯净的童心。在陪伴中，我们也重新做回了孩子。
+                    </p>
                   </div>
 
-                  {/* Age */}
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-12">
-                    <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic min-w-[140px]">孩子年龄</span>
-                    <div className="flex flex-wrap gap-8 text-xl lg:text-2xl font-black font-serif italic">
-                      {["0-3", "3-6", "6+"].map((a) => (
-                        <button
-                          key={a}
-                          onClick={() => setAge(a)}
-                          className={cn(
-                            "transition-all relative",
-                            age === a ? "text-ink" : "text-ink/30 hover:text-ink/60"
-                          )}
-                        >
-                          {a}岁
-                          {age === a && (
-                            <motion.div layoutId="age-dot" className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-brand-coral rounded-full" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {/* Weather Module - Moved to Left Side for better context */}
+                  {weather && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="inline-flex items-center gap-6 lg:gap-8 p-6 lg:p-8 bg-white rounded-[32px] border border-ink/5 shadow-xl shadow-ink/5"
+                    >
+                      <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 rounded-2xl bg-brand-coral/10 flex items-center justify-center text-brand-coral">
+                          {weather.weather === "sunny" && <Sun size={32} />}
+                          {weather.weather === "cloudy" && <Cloud size={32} />}
+                          {weather.weather === "rain" && <CloudRain size={32} />}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-widest font-black opacity-30">当前天气</span>
+                          <span className="text-xl font-black font-serif italic">{weather.weatherDesc || (weather.weather === "sunny" ? "晴" : weather.weather === "cloudy" ? "多云" : "雨")}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="h-12 w-px bg-ink/10" />
 
-                  {/* Trip Type */}
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-12">
-                    <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic min-w-[140px]">出行类型</span>
-                    <div className="flex flex-wrap gap-8 text-xl lg:text-2xl font-black font-serif italic">
-                      {[
-                        { id: "today", label: "当天遛娃" },
-                        { id: "weekend", label: "小长假" }
-                      ].map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => setTripType(t.id)}
-                          className={cn(
-                            "transition-all relative",
-                            tripType === t.id ? "text-ink" : "text-ink/30 hover:text-ink/60"
-                          )}
-                        >
-                          {t.label}
-                          {tripType === t.id && (
-                            <motion.div layoutId="trip-dot" className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-brand-coral rounded-full" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Duration */}
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-12">
-                    <span className="text-xl lg:text-2xl font-black opacity-60 font-serif italic min-w-[140px]">预计时长</span>
-                    <div className="flex flex-wrap gap-8 text-xl lg:text-2xl font-black font-serif italic">
-                      {(tripType === "today" ? ["1h", "2h", "half-day"] : ["1d", "2d1n", "3d2n"]).map((d) => (
-                        <button
-                          key={d}
-                          onClick={() => setDuration(d)}
-                          className={cn(
-                            "transition-all relative",
-                            duration === d ? "text-ink" : "text-ink/30 hover:text-ink/60"
-                          )}
-                        >
-                          {d === "half-day" ? "半天" : d}
-                          {duration === d && (
-                            <motion.div layoutId="dur-dot" className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-brand-coral rounded-full" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={generatePlan}
-                  disabled={!coords || isLoading}
-                  className="w-full py-8 bg-ink text-white flex items-center justify-center gap-6 group disabled:opacity-30 transition-all hover:bg-brand-coral rounded-2xl"
-                >
-                  {isLoading ? (
-                    <Loader2 className="animate-spin" size={24} />
-                  ) : (
-                    <>
-                      <span className="text-xl font-black uppercase tracking-tight font-serif italic">看看行程怎么安排更合适</span>
-                      <ArrowRight className="group-hover:translate-x-4 transition-transform" size={24} />
-                    </>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase tracking-widest font-black opacity-30">温度区间</span>
+                        <span className="text-xl font-black font-serif italic">
+                          {weather.tempMin !== undefined && weather.tempMax !== undefined 
+                            ? `${weather.tempMin}° / ${weather.tempMax}°` 
+                            : `${weather.temp}°C`}
+                        </span>
+                      </div>
+                    </motion.div>
                   )}
-                </button>
+                </div>
+
+                {/* Right Side: Selection Controls */}
+                <div className="lg:col-span-7 relative">
+                  {/* Floating decorative card background */}
+                  <div className="absolute inset-0 bg-brand-coral/[0.02] rounded-[60px] -rotate-2 scale-105 pointer-events-none" />
+                  
+                  <div className="relative bg-white p-8 lg:p-16 rounded-[48px] border border-ink/5 shadow-2xl shadow-ink/5 space-y-8 lg:space-y-12">
+                    {/* Location */}
+                    <div className="space-y-4">
+                      <label className="text-[10px] uppercase tracking-[0.4em] font-black opacity-30 block">Starting Point / 出发地点</label>
+                      <div className="flex items-center gap-4 text-2xl font-black group cursor-pointer">
+                        <div className="w-10 h-10 rounded-full bg-ink flex items-center justify-center text-white group-hover:bg-brand-coral transition-colors">
+                          <MapPin size={18} />
+                        </div>
+                        <span className="border-b-2 border-ink/10 group-hover:border-brand-coral transition-colors font-serif italic">
+                          {weather?.city || (coords ? "定位中..." : "获取定位中...")}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Age */}
+                    <div className="space-y-4">
+                      <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">孩子年龄</label>
+                      <div className="flex flex-wrap gap-10 text-2xl font-black font-serif italic">
+                        {["0-3", "3-6", "6+"].map((a) => (
+                          <button
+                            key={a}
+                            onClick={() => setAge(a)}
+                            className={cn(
+                              "transition-all relative py-2",
+                              age === a ? "text-ink" : "text-ink/20 hover:text-ink/40"
+                            )}
+                          >
+                            {a}岁
+                            {age === a && (
+                              <motion.div layoutId="age-dot" className="absolute -bottom-1 left-0 right-0 h-1 bg-brand-coral rounded-full" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Trip Type & Duration Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                      {/* Trip Type */}
+                      <div className="space-y-4">
+                        <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">行程类型</label>
+                        <div className="flex flex-col gap-4 text-xl font-black font-serif italic">
+                          {[
+                            { id: "today", label: "当天遛娃" },
+                            { id: "weekend", label: "小长假" }
+                          ].map((t) => (
+                            <button
+                              key={t.id}
+                              onClick={() => setTripType(t.id)}
+                              className={cn(
+                                "flex items-center gap-3 transition-all",
+                                tripType === t.id ? "text-ink" : "text-ink/20 hover:text-ink/40"
+                              )}
+                            >
+                              <div className={cn(
+                                "w-2 h-2 rounded-full transition-all",
+                                tripType === t.id ? "bg-brand-coral scale-125" : "bg-ink/10"
+                              )} />
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Duration */}
+                      <div className="space-y-4">
+                        <label className="text-[10px] uppercase tracking-[0.3em] font-black opacity-30">预计时长</label>
+                        <div className="flex flex-col gap-4 text-xl font-black font-serif italic">
+                          {(tripType === "today" ? ["1h", "2h", "half-day"] : ["1d", "2d1n", "3d2n"]).map((d) => (
+                            <button
+                              key={d}
+                              onClick={() => setDuration(d)}
+                              className={cn(
+                                "flex items-center gap-3 transition-all",
+                                duration === d ? "text-ink" : "text-ink/20 hover:text-ink/40"
+                              )}
+                            >
+                              <div className={cn(
+                                "w-2 h-2 rounded-full transition-all",
+                                duration === d ? "bg-brand-coral scale-125" : "bg-ink/10"
+                              )} />
+                              {d === "half-day" ? "半天" : d}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={generatePlan}
+                      disabled={!coords || isLoading}
+                      className="w-full py-8 bg-ink text-white flex items-center justify-center gap-6 group disabled:opacity-30 transition-all hover:bg-brand-coral rounded-[24px] shadow-xl shadow-ink/10"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="animate-spin" size={24} />
+                      ) : (
+                        <>
+                          <span className="text-xl font-black uppercase tracking-tight font-serif italic">去遛娃</span>
+                          <ArrowRight className="group-hover:translate-x-4 transition-transform" size={24} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
           </motion.div>
@@ -446,7 +560,29 @@ export default function App() {
 
             {/* Recommendations Tiled */}
             <div className="space-y-16">
-              <label className="text-xs uppercase tracking-[0.4em] font-black text-ink/30 block">精选推荐地点</label>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 border-b border-ink/10 pb-12 relative">
+                <div className="flex items-center gap-6">
+                  <div className="w-16 h-16 rounded-2xl bg-brand-coral flex items-center justify-center text-white shadow-xl shadow-brand-coral/20">
+                    <Navigation size={32} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-[0.5em] font-black text-ink/40">精选推荐地点</label>
+                    <h3 className="text-3xl lg:text-4xl font-black tracking-tight font-serif italic">
+                      Kids <span className="text-brand-coral">Playground</span>
+                    </h3>
+                  </div>
+                </div>
+                
+                <div className="hidden md:flex items-center gap-4">
+                  <span className="text-[10px] uppercase tracking-[0.5em] font-black opacity-20">Trendy Selection</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="w-2 h-2 rounded-full bg-brand-coral/20" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
                 {result.recommendations.map((rec, idx) => (
                   <div key={idx} className="group space-y-6 bg-white p-10 rounded-[40px] border border-ink/5 hover:shadow-xl transition-all font-serif italic">
