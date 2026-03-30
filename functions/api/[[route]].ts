@@ -172,6 +172,27 @@ function extractJsonPayload(raw: string) {
   return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
 }
 
+function uniqueStrings(values: string[], limit = values.length) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
+}
+
 function normalizeTimeLabel(value: unknown, fallback: string) {
   if (typeof value !== "string") {
     return fallback;
@@ -183,6 +204,26 @@ function normalizeTimeLabel(value: unknown, fallback: string) {
   }
 
   return `${matched[1].padStart(2, "0")}:${matched[2]}`;
+}
+
+function sanitizeText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function sanitizeFocusStops(value: unknown, fallbackStops: string[], allowedStops: Set<string>) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return fallbackStops;
+  }
+
+  const sanitized = uniqueStrings(
+    value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => allowedStops.has(item)),
+    Math.max(2, fallbackStops.length),
+  );
+
+  return sanitized.length ? sanitized : fallbackStops;
 }
 
 function sanitizeScheduleItems(items: unknown, fallbackItems: PlanItem[]): PlanItem[] {
@@ -219,18 +260,44 @@ function sanitizeScheduleBlocks(blocks: unknown, fallbackBlocks: ScheduleBlock[]
   });
 }
 
-function sanitizeScheduleOption(option: unknown, fallbackOption: ScheduleOption): ScheduleOption {
+function sanitizeScheduleOption(
+  option: unknown,
+  fallbackOption: ScheduleOption,
+  allowedStops: Set<string>,
+): ScheduleOption {
   const candidate = (option || {}) as { description?: unknown; blocks?: unknown };
 
   return {
     id: fallbackOption.id,
     label: fallbackOption.label,
-    description:
-      typeof candidate.description === "string" && candidate.description.trim()
-        ? candidate.description.trim()
-        : fallbackOption.description,
+    description: sanitizeText(candidate.description, fallbackOption.description),
+    packageHeadline: sanitizeText((candidate as any).packageHeadline, fallbackOption.packageHeadline),
+    packageSummary: sanitizeText((candidate as any).packageSummary, fallbackOption.packageSummary),
+    focusStops: sanitizeFocusStops((candidate as any).focusStops, fallbackOption.focusStops, allowedStops),
     blocks: sanitizeScheduleBlocks(candidate.blocks, fallbackOption.blocks),
   };
+}
+
+function sanitizeScheduleOptions(
+  options: unknown,
+  fallbackOptions: ScheduleOption[],
+  pois: RankedPoi[],
+): ScheduleOption[] {
+  if (!Array.isArray(options) || options.length === 0) {
+    return fallbackOptions;
+  }
+
+  const allowedStops = new Set<string>([
+    ...pois.map((poi) => poi.name),
+    ...fallbackOptions.flatMap((option) => option.focusStops),
+  ]);
+
+  return fallbackOptions.map((fallbackOption, index) => {
+    const matched =
+      options.find((option) => (option as { id?: unknown })?.id === fallbackOption.id) ??
+      options[index];
+    return sanitizeScheduleOption(matched, fallbackOption, allowedStops);
+  });
 }
 
 function flattenScheduleBlocks(blocks: ScheduleBlock[]): PlanItem[] {
@@ -241,23 +308,52 @@ function flattenScheduleBlocks(blocks: ScheduleBlock[]): PlanItem[] {
   );
 }
 
-async function refineDepartNowScheduleWithDeepSeek(
+interface RefinedScheduleOptionsResult {
+  summary?: string;
+  scheduleOptions: ScheduleOption[];
+}
+
+function reorderRecommendationsByFocusStops(
+  recommendations: Array<{ name: string; reason: string; distance: string; lat?: number; lng?: number; address?: string }>,
+  scheduleOptions: ScheduleOption[],
+) {
+  const focusOrder = uniqueStrings(scheduleOptions.flatMap((option) => option.focusStops));
+  if (!focusOrder.length) {
+    return recommendations;
+  }
+
+  const orderMap = new Map(focusOrder.map((name, index) => [name, index]));
+
+  return [...recommendations].sort((left, right) => {
+    const leftRank = orderMap.get(left.name) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = orderMap.get(right.name) ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+}
+
+async function refineScheduleOptionsWithDeepSeek(
   env: Env,
   context: PlanningContext,
   pois: RankedPoi[],
-  fallbackOption: ScheduleOption,
-): Promise<ScheduleOption | null> {
+  fallbackOptions: ScheduleOption[],
+): Promise<RefinedScheduleOptionsResult | null> {
   if (!isConfiguredKey(env.DEEPSEEK_API_KEY)) {
     return null;
   }
 
   const poiDigest = pois
-    .slice(0, 5)
+    .slice(0, 6)
     .map(
       (poi, index) =>
         `${index + 1}. ${poi.name} | ${poi.distanceKm.toFixed(1)}km | ${poi.address} | ${poi.types.join("/")}`,
     )
     .join("\n");
+  const fallbackDigest = fallbackOptions
+    .map(
+      (option) =>
+        `${option.id}\nlabel: ${option.label}\ndescription: ${option.description}\npackageHeadline: ${option.packageHeadline}\npackageSummary: ${option.packageSummary}\nfocusStops: ${option.focusStops.join("、")}\nleadAction: ${option.blocks[0]?.items[0]?.action || ""}`,
+    )
+    .join("\n\n");
 
   const response = await requestJson<any>(
     "https://api.deepseek.com/v1/chat/completions",
@@ -273,103 +369,31 @@ async function refineDepartNowScheduleWithDeepSeek(
           {
             role: "system",
             content:
-              "你是亲子出行规划编辑，只输出 JSON。只能使用给定 POI，不能虚构新地点，必须保持 blocks 数量和每个 block 的 items 数量不变。",
+              "你是亲子出行规划编辑，只输出 JSON。只能使用给定 POI，不能虚构新地点，必须保持每个方案包的 option id、blocks 数量和每个 block 的 items 数量不变。",
           },
           {
             role: "user",
             content: `
-请把“现在出发版”改写得更符合当前时间，不要改成正常作息版。
+请把整组方案包一起改写得更符合用户当前场景，而不是只润色其中一个版本。
 
-- 出行类型: ${context.tripType}
-- 孩子年龄: ${context.age}
-- 时长: ${context.duration}
-- 出发位置: ${context.locationLabel}
-- 天气: ${context.weather.weather}, ${context.weather.temp}C
-- 当前时间: ${context.currentTime || new Date().toISOString()}
+关键要求：
+- 如果同时存在 depart-now 和 regular-rhythm：
+  - depart-now 必须强调从当前时间出发还能顺利执行的路线
+  - regular-rhythm 必须强调白天正常作息或隔天执行时更合适的路线
+  - 两套方案尽量不要共用同一个第一站，除非候选池太小确实没有合理替代
+- 如果是 weekend：
+  - 这是完整的假期亲子方案，不要写成单点推荐
+  - packageHeadline 和 focusStops 必须体现多站组合
+- 优先选择真正适合亲子遛娃的地点，避免把证券营业部、公寓、纯餐饮、路口这类地点写进 focusStops 或主行程，除非候选池里完全没有别的可用选项
 
-可用 POI：
-${poiDigest}
-
-fallback:
-${JSON.stringify(fallbackOption)}
-
-返回 JSON:
-{
-  "description": "一句话说明为什么这版更适合现在出发",
-  "blocks": [
-    {
-      "title": "当日或D1",
-      "summary": "一句话摘要",
-      "items": [
-        { "time": "18:30", "action": "..." }
-      ]
-    }
-  ]
-}
-            `,
-          },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    },
-    4500,
-  );
-
-  const content = response?.choices?.[0]?.message?.content;
-  if (!content) {
-    return null;
-  }
-
-  return sanitizeScheduleOption(typeof content === "string" ? JSON.parse(content) : content, fallbackOption);
-}
-
-async function refineDepartNowScheduleWithGemini(
-  env: Env,
-  context: PlanningContext,
-  pois: RankedPoi[],
-  fallbackOption: ScheduleOption,
-): Promise<ScheduleOption | null> {
-  if (!isConfiguredKey(env.GEMINI_API_KEY)) {
-    return null;
-  }
-
-  const poiDigest = pois
-    .slice(0, 5)
-    .map(
-      (poi, index) =>
-        `${index + 1}. ${poi.name} | ${poi.distanceKm.toFixed(1)}km | ${poi.address} | ${poi.types.join("/")}`,
-    )
-    .join("\n");
-  const fallbackDigest = fallbackOption.blocks
-    .map(
-      (block) =>
-        `${block.title} (${block.summary})\n${block.items.map((item) => `- ${item.time} ${item.action}`).join("\n")}`,
-    )
-    .join("\n\n");
-
-  const response = await requestJson<any>(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `
-你是亲子出行规划编辑。请只改写“现在出发版”，让它更符合用户点击生成方案的当下时间，不要改写成“正常作息版”。
-
-约束：
+硬约束：
 1. 只能使用我提供的 POI 名称，不能虚构新地点。
 2. 时间必须是 24 小时制 HH:MM。
-3. blocks 数量、每个 block 的 items 数量，必须和 fallback 完全一致。
-4. 文案要具体、可执行，强调“现在出发更合适怎么走”，不要提模型、不要提高德、不要解释规则。
-5. 如果当前时间已经偏晚，要主动缩短野心，优先安排最顺路、最容易落地的点。
+3. options 数量、每个 option 的 id 必须和 fallback 完全一致。
+4. packageHeadline 不能只写一个地点名，优先写成多站组合。
+5. focusStops 只返回真正的地点名数组，不要写解释句子。
+6. 文案要自然、具体、可执行，不要提模型、不要提高德、不要解释规则。
 
-用户条件：
 - 出行类型: ${context.tripType}
 - 孩子年龄: ${context.age}
 - 时长: ${context.duration}
@@ -383,76 +407,64 @@ ${poiDigest}
 fallback:
 ${fallbackDigest}
 
-请返回 JSON：
+返回 JSON:
 {
-  "description": "一句话说明为什么这版更适合现在出发",
-  "blocks": [
+  "summary": "一句整体摘要",
+  "options": [
     {
-      "title": "当日或D1",
-      "summary": "一句话摘要",
-      "items": [
-        { "time": "18:30", "action": "..." }
-      ]
+      "id": "depart-now或regular-rhythm",
+      "description": "一句话说明这套方案为什么适合这个场景",
+      "packageHeadline": "多站组合标题",
+      "packageSummary": "一句话解释这套组合为什么成立",
+      "focusStops": ["地点A", "地点B", "地点C"]
     }
   ]
 }
-                `,
-              },
-            ],
+            `,
           },
         ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
+        response_format: { type: "json_object" },
       }),
     },
-    4500,
+    12000,
   );
 
-  const text = response?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
-  if (!text) {
+  const content = response?.choices?.[0]?.message?.content;
+  if (!content) {
     return null;
   }
 
-  return sanitizeScheduleOption(extractJsonPayload(text), fallbackOption);
+  const payload = typeof content === "string" ? JSON.parse(content) : content;
+  return {
+    summary: typeof payload?.summary === "string" && payload.summary.trim() ? payload.summary.trim() : undefined,
+    scheduleOptions: sanitizeScheduleOptions(payload?.options, fallbackOptions, pois),
+  };
 }
 
-async function maybeRefineDepartNowSchedule(
+async function maybeRefineScheduleOptions(
   env: Env,
   context: PlanningContext,
   pois: RankedPoi[],
-  fallbackOption: ScheduleOption,
-): Promise<ScheduleOption> {
-  const timeoutMs = 3500;
-  const timeoutPromise = new Promise<ScheduleOption | null>((resolve) => {
+  fallbackOptions: ScheduleOption[],
+): Promise<RefinedScheduleOptionsResult> {
+  const timeoutMs = 10000;
+  const timeoutPromise = new Promise<RefinedScheduleOptionsResult | null>((resolve) => {
     setTimeout(() => resolve(null), timeoutMs);
   });
 
   try {
     const refined = await Promise.race([
-      refineDepartNowScheduleWithDeepSeek(env, context, pois, fallbackOption),
+      refineScheduleOptionsWithDeepSeek(env, context, pois, fallbackOptions),
       timeoutPromise,
     ]);
     if (refined) {
       return refined;
     }
   } catch (error) {
-    console.warn("DeepSeek depart-now refine failed:", error);
+    console.warn("DeepSeek schedule refinement failed:", error);
   }
 
-  try {
-    const refined = await Promise.race([
-      refineDepartNowScheduleWithGemini(env, context, pois, fallbackOption),
-      timeoutPromise,
-    ]);
-    if (refined) {
-      return refined;
-    }
-  } catch (error) {
-    console.warn("Gemini depart-now refine failed:", error);
-  }
-
-  return fallbackOption;
+  return { scheduleOptions: fallbackOptions };
 }
 
 async function resolveBootstrapRegion(env: Env, lat: number, lng: number, city?: string, province?: string) {
@@ -1021,14 +1033,15 @@ async function handlePlan(request: Request, env: Env) {
   const candidatePois = selectPlanningCandidates(rankedPois, candidateLimit, context);
   const planningPois = candidatePois.length ? candidatePois : selectPlanningCandidates(rankedPois, candidateLimit);
   const realtimePlan = buildRealtimePlan(context, planningPois);
-  const departNowOption = realtimePlan.scheduleOptions.find((option) => option.id === "depart-now");
-
-  if (departNowOption) {
-    const refinedDepartNow = await maybeRefineDepartNowSchedule(env, context, planningPois, departNowOption);
-    realtimePlan.scheduleOptions = realtimePlan.scheduleOptions.map((option) =>
-      option.id === "depart-now" ? refinedDepartNow : option,
-    );
-    realtimePlan.plan = flattenScheduleBlocks(refinedDepartNow.blocks);
+  const refinedResult = await maybeRefineScheduleOptions(env, context, planningPois, realtimePlan.scheduleOptions);
+  realtimePlan.scheduleOptions = refinedResult.scheduleOptions;
+  realtimePlan.plan = flattenScheduleBlocks(realtimePlan.scheduleOptions[0].blocks);
+  realtimePlan.recommendations = reorderRecommendationsByFocusStops(
+    realtimePlan.recommendations,
+    realtimePlan.scheduleOptions,
+  );
+  if (refinedResult.summary) {
+    realtimePlan.summary = refinedResult.summary;
   }
 
   return json({

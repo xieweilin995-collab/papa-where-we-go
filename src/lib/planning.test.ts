@@ -701,6 +701,9 @@ describe("planning helpers", () => {
     expect(result.scheduleOptions?.map((option) => option.id)).toEqual(["depart-now", "regular-rhythm"]);
     expect(result.scheduleOptions?.[0].blocks[0].items[0].time).toBe("14:30");
     expect(result.scheduleOptions?.[1].blocks[0].items[0].time).not.toBe("14:30");
+    expect(result.scheduleOptions?.every((option) => option.packageHeadline.trim().length > 0)).toBe(true);
+    expect(result.scheduleOptions?.every((option) => option.packageSummary.trim().length > 0)).toBe(true);
+    expect(result.scheduleOptions?.every((option) => option.focusStops.length >= 2)).toBe(true);
   });
 
   it("returns only the regular holiday schedule for weekend trips", () => {
@@ -788,6 +791,56 @@ describe("planning helpers", () => {
     expect(result.scheduleOptions?.[0].blocks[0].items[0].action).not.toBe(
       result.scheduleOptions?.[1].blocks[0].items[0].action,
     );
+    expect(result.scheduleOptions?.[0].packageHeadline).not.toBe(result.scheduleOptions?.[1].packageHeadline);
+    expect(result.scheduleOptions?.[0].focusStops).not.toEqual(result.scheduleOptions?.[1].focusStops);
+  });
+
+  it("forces a different same-day lead stop for regular-rhythm when multiple nearby family spots are available", () => {
+    const result = buildRealtimePlan(
+      {
+        ...context,
+        tripType: "today",
+        duration: "2h",
+        currentTime: "2026-03-30T18:18:00+08:00",
+        district: "黄浦区",
+        locationLabel: "上海 黄浦区",
+      },
+      [
+        {
+          name: "人民公园",
+          lat: 31.2321,
+          lng: 121.4731,
+          rating: 4.8,
+          address: "黄浦区南京西路231号",
+          types: ["park", "playground"],
+          distanceKm: 0.2,
+          district: "黄浦区",
+        },
+        {
+          name: "淮海公园",
+          lat: 31.223,
+          lng: 121.4775,
+          rating: 4.7,
+          address: "黄浦区太仓路56号",
+          types: ["park", "playground"],
+          distanceKm: 0.9,
+          district: "黄浦区",
+        },
+        {
+          name: "广场公园-长桥碧水",
+          lat: 31.2253,
+          lng: 121.4728,
+          rating: 4.6,
+          address: "黄浦区延安东路",
+          types: ["park", "playground"],
+          distanceKm: 0.6,
+          district: "黄浦区",
+        },
+      ],
+    );
+
+    expect(result.scheduleOptions?.[0].focusStops[0]).not.toBe(result.scheduleOptions?.[1].focusStops[0]);
+    expect(result.scheduleOptions?.[0].blocks[0].items[0].action).not.toBe(result.scheduleOptions?.[1].blocks[0].items[0].action);
   });
 
   it("builds a true three-day itinerary for 3d2n trips", () => {
@@ -847,6 +900,8 @@ describe("planning helpers", () => {
     expect(result.scheduleOptions?.[0].blocks).toHaveLength(3);
     expect(result.scheduleOptions?.[0].blocks.map((block) => block.title)).toEqual(["D1", "D2", "D3"]);
     expect(result.scheduleOptions?.[0].blocks.every((block) => block.items.length >= 2)).toBe(true);
+    expect(result.scheduleOptions?.[0].focusStops.length).toBeGreaterThanOrEqual(3);
+    expect(result.scheduleOptions?.[0].packageHeadline).toContain(" + ");
   });
 
   it("does not wrap the first day lead POI back into the tail of a 2d1n itinerary", () => {

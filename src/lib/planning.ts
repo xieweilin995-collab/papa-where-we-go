@@ -47,6 +47,9 @@ export interface ScheduleOption {
   id: "depart-now" | "regular-rhythm";
   label: string;
   description: string;
+  packageHeadline: string;
+  packageSummary: string;
+  focusStops: string[];
   blocks: ScheduleBlock[];
 }
 
@@ -691,6 +694,27 @@ interface ScheduleBlueprint {
   offsets: number[];
 }
 
+function uniqueStops(values: string[], limit: number): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
+}
+
 function getReferenceTime(context: PlanningContext): Date {
   return buildPlanningReferenceDate(context.currentTime);
 }
@@ -758,7 +782,7 @@ function buildModeSpecificPoiList(
   const isLateDeparture = referenceHour >= 17;
   const isRainyOrHot = context.weather.weather === "rain" || context.weather.temp >= 32;
 
-  return [...pois].sort((left, right) => {
+  const sortedPois = [...pois].sort((left, right) => {
     const compare = (poi: RankedPoi) => {
       const destinationScore = inferDestinationScore(poi);
       const neighborhoodScore = inferNeighborhoodScore(poi);
@@ -790,6 +814,67 @@ function buildModeSpecificPoiList(
 
     return compare(right) - compare(left);
   });
+
+  if (mode === "regular-rhythm" && context.tripType === "today" && sortedPois.length > 1) {
+    const departNowLead = buildModeSpecificPoiList(context, pois, "depart-now")[0];
+    if (departNowLead && sortedPois[0]?.name === departNowLead.name) {
+      const alternativeIndex = sortedPois.findIndex((poi, index) => index > 0 && poi.name !== departNowLead.name);
+      if (alternativeIndex > 0) {
+        const [alternativeLead] = sortedPois.splice(alternativeIndex, 1);
+        sortedPois.unshift(alternativeLead);
+      }
+    }
+  }
+
+  return sortedPois;
+}
+
+function buildOptionFocusStops(
+  context: PlanningContext,
+  pois: RankedPoi[],
+  mode: "depart-now" | "regular-rhythm",
+): string[] {
+  const modePois = buildModeSpecificPoiList(context, pois, mode);
+  const limit = context.tripType === "weekend" ? (context.duration === "3d2n" ? 4 : 3) : 3;
+  const focusStops = uniqueStops(modePois.map((poi) => poi.name), limit);
+
+  if (focusStops.length > 0) {
+    return focusStops;
+  }
+
+  return uniqueStops(pois.map((poi) => poi.name), limit);
+}
+
+function buildOptionPackageHeadline(
+  context: PlanningContext,
+  mode: "depart-now" | "regular-rhythm",
+  focusStops: string[],
+): string {
+  const joinedStops = focusStops.length >= 2 ? focusStops.slice(0, 3).join(" + ") : focusStops[0] || "附近亲子地点";
+
+  if (context.tripType === "weekend") {
+    return `${joinedStops} 假期遛娃方案`;
+  }
+
+  return mode === "depart-now" ? `${joinedStops} 现在出发版` : `${joinedStops} 正常作息版`;
+}
+
+function buildOptionPackageSummary(
+  context: PlanningContext,
+  mode: "depart-now" | "regular-rhythm",
+  focusStops: string[],
+): string {
+  const shortList = focusStops.slice(0, 3).join("、") || "附近亲子地点";
+
+  if (context.tripType === "weekend") {
+    return `围绕 ${shortList} 排出更完整的 ${context.duration} 亲子动线，让每天主体验和收尾都更连贯。`;
+  }
+
+  if (mode === "depart-now") {
+    return `按当前时间优先串联 ${shortList}，更看重顺路、可执行和当下还能轻松落地。`;
+  }
+
+  return `按更常见的白天节奏安排 ${shortList}，把停留质量、孩子体力和返程从容感都一起照顾到。`;
 }
 
 function buildLiveOffsets(
@@ -951,6 +1036,7 @@ function flattenBlocks(blocks: ScheduleBlock[]): PlanItem[] {
 
 function buildScheduleOptions(context: PlanningContext, pois: RankedPoi[]): ScheduleOption[] {
   const blueprints = buildScheduleBlueprints(context);
+  const regularFocusStops = buildOptionFocusStops(context, pois, "regular-rhythm");
   const regularOption: ScheduleOption = {
     id: "regular-rhythm",
     label: context.tripType === "weekend" ? "假期节奏版" : "正常作息版",
@@ -960,6 +1046,9 @@ function buildScheduleOptions(context: PlanningContext, pois: RankedPoi[]): Sche
         : shouldOfferDepartNow(context)
           ? "按更常见的亲子出门节奏重排，方便改成明天或周末白天执行。"
           : "今晚更建议让孩子休息，这里优先给你隔天白天可执行的方案。",
+    packageHeadline: buildOptionPackageHeadline(context, "regular-rhythm", regularFocusStops),
+    packageSummary: buildOptionPackageSummary(context, "regular-rhythm", regularFocusStops),
+    focusStops: regularFocusStops,
     blocks: blueprints.map((block, dayIndex) => ({
       title: block.title,
       summary: block.summary,
@@ -971,11 +1060,15 @@ function buildScheduleOptions(context: PlanningContext, pois: RankedPoi[]): Sche
     return [regularOption];
   }
 
+  const departNowFocusStops = buildOptionFocusStops(context, pois, "depart-now");
   return [
     {
       id: "depart-now",
       label: "现在出发版",
       description: "按你点击生成方案的当下时间起步，优先保证接下来这段时间真的可执行。",
+      packageHeadline: buildOptionPackageHeadline(context, "depart-now", departNowFocusStops),
+      packageSummary: buildOptionPackageSummary(context, "depart-now", departNowFocusStops),
+      focusStops: departNowFocusStops,
       blocks: blueprints.map((block, dayIndex) => ({
         title: block.title,
         summary: dayIndex === 0 ? "更贴合你现在的时间窗口。" : block.summary,

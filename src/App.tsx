@@ -51,6 +51,9 @@ interface ScheduleOption {
   id: "depart-now" | "regular-rhythm";
   label: string;
   description: string;
+  packageHeadline: string;
+  packageSummary: string;
+  focusStops: string[];
   blocks: ScheduleBlock[];
 }
 
@@ -627,6 +630,30 @@ export default function App() {
   }
 
   const scopedLocationLabel = getDisplayLocationLabel(location, weather, tripType as TripType);
+  const scheduleOptions =
+    result?.scheduleOptions?.length
+      ? result.scheduleOptions
+      : result
+        ? [
+            {
+              id: "depart-now" as const,
+              label: "当前方案",
+              description: "当前返回的默认行程。",
+              packageHeadline: "当前遛娃方案",
+              packageSummary: result.summary || "按当前筛选条件整理的一条默认路线。",
+              focusStops: result.recommendations.slice(0, 3).map((item) => item.name),
+              blocks: [{ title: "当日", summary: "默认行程", items: result.plan }],
+            },
+          ]
+        : [];
+  const hasMultiplePackages = scheduleOptions.length > 1;
+  const heroPackage = scheduleOptions[0];
+  const resultHeroTitle = hasMultiplePackages
+    ? "两套不同节奏的遛娃方案"
+    : heroPackage?.packageHeadline || "为你整理了一套遛娃方案";
+  const resultHeroSummary = hasMultiplePackages
+    ? result?.summary || "结合你当前的筛选条件，已经整理出两套更适合不同出发节奏的方案。"
+    : heroPackage?.packageSummary || result?.summary || "这套方案会更偏向当前条件下更稳妥、顺路的遛娃组合。";
 
   return (
     <div className="min-h-screen bg-paper text-ink font-sans selection:bg-brand-coral/10 relative">
@@ -909,8 +936,11 @@ export default function App() {
                   {tripType === "today" ? "当天遛娃" : "小长假遛娃"} · {getDurationLabel(duration)} · {scopedLocationLabel}
                 </p>
                 <h2 className="text-[8vw] lg:text-[6vw] font-black tracking-tighter text-ink leading-tight font-serif italic">
-                  建议前往：{result.recommendations[0]?.name || "附近的公园"}
+                  {resultHeroTitle}
                 </h2>
+                <p className="max-w-4xl text-lg lg:text-2xl text-ink/58 leading-relaxed font-black font-serif italic">
+                  {resultHeroSummary}
+                </p>
                 {result.notice && (
                   <div className="max-w-4xl rounded-[28px] border border-brand-coral/20 bg-brand-coral/6 px-6 py-5 text-base lg:text-lg font-black text-brand-coral leading-relaxed">
                     {result.notice}
@@ -925,31 +955,42 @@ export default function App() {
                 <div
                   className={cn(
                     "grid gap-8",
-                    (result.scheduleOptions?.length ?? 0) > 1 ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1 max-w-4xl",
+                    hasMultiplePackages ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1 max-w-4xl",
                   )}
                 >
-                  {(result.scheduleOptions?.length
-                    ? result.scheduleOptions
-                    : [
-                        {
-                          id: "depart-now" as const,
-                          label: "当前方案",
-                          description: "当前返回的默认行程。",
-                          blocks: [{ title: "当日", summary: "默认行程", items: result.plan }],
-                        },
-                      ]).map((option) => (
+                  {scheduleOptions.map((option) => (
                     <div
                       key={option.id}
                       className="rounded-[28px] border border-ink/8 bg-paper/55 px-6 py-6 lg:px-7 lg:py-7 space-y-6"
                     >
-                      {(result.scheduleOptions?.length ?? 0) > 1 && (
+                      <div className="space-y-4">
                         <div className="space-y-2">
-                          <p className="text-xl lg:text-2xl font-black text-ink font-serif italic">{option.label}</p>
+                          <p className="text-[11px] uppercase tracking-[0.35em] font-black text-ink/35">{option.label}</p>
+                          <p className="text-2xl lg:text-3xl font-black text-ink font-serif italic leading-tight">
+                            {option.packageHeadline}
+                          </p>
                           <p className="text-base lg:text-lg font-black text-ink/60 leading-relaxed">
-                            {option.description}
+                            {option.packageSummary}
                           </p>
                         </div>
-                      )}
+
+                        {option.focusStops.length > 0 && (
+                          <div className="flex flex-wrap gap-3">
+                            {option.focusStops.map((stop) => (
+                              <span
+                                key={`${option.id}-${stop}`}
+                                className="rounded-full border border-brand-coral/15 bg-white/80 px-4 py-2 text-sm font-black text-ink/70"
+                              >
+                                {stop}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <p className="text-base lg:text-lg font-black text-ink/60 leading-relaxed">
+                          {option.description}
+                        </p>
+                      </div>
 
                       <div className="space-y-5">
                         {option.blocks.map((block, blockIndex) => (
