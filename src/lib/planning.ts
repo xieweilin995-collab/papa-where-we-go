@@ -58,6 +58,24 @@ export interface PlanResultShape {
   recommendations: Array<{ name: string; reason: string; distance: string; lat?: number; lng?: number; address?: string }>;
 }
 
+export function buildPlanningCurrentTime(date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  const parts = formatter.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+08:00`;
+}
+
 const COMMERCIAL_KEYWORDS = ["来福士", "万象城", "银泰", "广场", "购物", "mall", "商场"];
 const OUTDOOR_KEYWORDS = ["park", "playground", "公园", "绿地", "滨江", "自然"];
 const INDOOR_KEYWORDS = ["indoor", "室内", "乐园", "游乐", "mall"];

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFallbackPlan,
+  buildPlanningCurrentTime,
   buildRealtimePlan,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
@@ -640,6 +641,10 @@ describe("planning helpers", () => {
     expect(result.notice).toContain("现在夜深了");
     expect(result.scheduleOptions).toHaveLength(1);
     expect(result.scheduleOptions[0].id).toBe("regular-rhythm");
+  });
+
+  it("formats server planning timestamps in Asia/Shanghai instead of raw UTC", () => {
+    expect(buildPlanningCurrentTime(new Date("2026-03-29T15:07:32.899Z"))).toBe("2026-03-29T23:07:32+08:00");
   });
 
   it("returns two schedule options for realtime plans", () => {

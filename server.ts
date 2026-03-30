@@ -5,6 +5,7 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import {
+  buildPlanningCurrentTime,
   buildRealtimePlan,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
@@ -967,7 +968,7 @@ app.post("/api/plan", async (req, res) => {
     locationLabel,
     weather: normalizedWeather,
     district: normalizedTripType === "today" ? location?.district || normalizedWeather.district : undefined,
-    currentTime: new Date().toISOString(),
+    currentTime: buildPlanningCurrentTime(),
   };
   const selectedDuration = duration || (normalizedTripType === "today" ? "2h" : "1d");
   const queryContext = { age: age || "3-6", weather: normalizedWeather.weather };

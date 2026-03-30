@@ -1,4 +1,5 @@
 import {
+  buildPlanningCurrentTime,
   buildRealtimePlan,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
@@ -998,7 +999,7 @@ async function handlePlan(request: Request, env: Env) {
     locationLabel,
     weather: normalizedWeather,
     district: normalizedTripType === "today" ? location?.district || normalizedWeather.district : undefined,
-    currentTime: new Date().toISOString(),
+    currentTime: buildPlanningCurrentTime(),
   };
   const selectedDuration = duration || (normalizedTripType === "today" ? "2h" : "1d");
   const queryContext = { age: age || "3-6", weather: normalizedWeather.weather };
