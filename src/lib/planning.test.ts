@@ -3,6 +3,7 @@ import {
   buildFallbackPlan,
   buildPlanningCurrentTime,
   buildRealtimePlan,
+  resolvePlanningCurrentTime,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
   rankPoisForTrip,
@@ -645,6 +646,18 @@ describe("planning helpers", () => {
 
   it("formats server planning timestamps in Asia/Shanghai instead of raw UTC", () => {
     expect(buildPlanningCurrentTime(new Date("2026-03-29T15:07:32.899Z"))).toBe("2026-03-29T23:07:32+08:00");
+  });
+
+  it("keeps an explicit planning time override when it is valid", () => {
+    expect(resolvePlanningCurrentTime("2026-03-30T21:18:00+08:00", new Date("2026-03-30T10:00:00Z"))).toBe(
+      "2026-03-30T21:18:00+08:00",
+    );
+  });
+
+  it("falls back to Shanghai planning time when an override is invalid", () => {
+    expect(resolvePlanningCurrentTime("not-a-time", new Date("2026-03-30T15:07:32.899Z"))).toBe(
+      "2026-03-30T23:07:32+08:00",
+    );
   });
 
   it("returns two schedule options for realtime plans", () => {

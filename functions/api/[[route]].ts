@@ -1,6 +1,6 @@
 import {
-  buildPlanningCurrentTime,
   buildRealtimePlan,
+  resolvePlanningCurrentTime,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
   rankPoisForTrip,
@@ -48,6 +48,7 @@ interface PlanRequestBody {
   age?: string;
   duration?: string;
   tripType?: string;
+  currentTime?: string;
 }
 
 interface PoiQueryContext {
@@ -972,7 +973,7 @@ async function handleBootstrapLocation(env: Env) {
 }
 
 async function handlePlan(request: Request, env: Env) {
-  const { location, weather, age, duration, tripType } = (await request.json()) as PlanRequestBody;
+  const { location, weather, age, duration, tripType, currentTime } = (await request.json()) as PlanRequestBody;
   const normalizedTripType: TripType = tripType === "weekend" ? "weekend" : "today";
   const planningLat = Number(location?.lat) || DEFAULT_LOCATION.lat;
   const planningLng = Number(location?.lng) || DEFAULT_LOCATION.lng;
@@ -999,7 +1000,7 @@ async function handlePlan(request: Request, env: Env) {
     locationLabel,
     weather: normalizedWeather,
     district: normalizedTripType === "today" ? location?.district || normalizedWeather.district : undefined,
-    currentTime: buildPlanningCurrentTime(),
+    currentTime: resolvePlanningCurrentTime(currentTime, new Date()),
   };
   const selectedDuration = duration || (normalizedTripType === "today" ? "2h" : "1d");
   const queryContext = { age: age || "3-6", weather: normalizedWeather.weather };

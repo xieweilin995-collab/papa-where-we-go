@@ -5,8 +5,8 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import {
-  buildPlanningCurrentTime,
   buildRealtimePlan,
+  resolvePlanningCurrentTime,
   buildScopedLocationLabel,
   filterFamilyFriendlyPois,
   rankPoisForTrip,
@@ -53,6 +53,7 @@ interface PlanRequestBody {
   age?: string;
   duration?: string;
   tripType?: string;
+  currentTime?: string;
   pois?: RankedPoi[];
 }
 
@@ -941,7 +942,7 @@ app.get("/api/bootstrap-location", async (_req, res) => {
 
 // 5. AI Plan Generation (DeepSeek)
 app.post("/api/plan", async (req, res) => {
-  const { location, weather, age, duration, tripType } = req.body as PlanRequestBody;
+  const { location, weather, age, duration, tripType, currentTime } = req.body as PlanRequestBody;
   const normalizedTripType: TripType = tripType === "weekend" ? "weekend" : "today";
   const planningLat = Number(location?.lat) || DEFAULT_LOCATION.lat;
   const planningLng = Number(location?.lng) || DEFAULT_LOCATION.lng;
@@ -968,7 +969,7 @@ app.post("/api/plan", async (req, res) => {
     locationLabel,
     weather: normalizedWeather,
     district: normalizedTripType === "today" ? location?.district || normalizedWeather.district : undefined,
-    currentTime: buildPlanningCurrentTime(),
+    currentTime: resolvePlanningCurrentTime(currentTime, new Date()),
   };
   const selectedDuration = duration || (normalizedTripType === "today" ? "2h" : "1d");
   const queryContext = { age: age || "3-6", weather: normalizedWeather.weather };

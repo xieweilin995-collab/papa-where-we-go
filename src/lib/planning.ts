@@ -76,6 +76,17 @@ export function buildPlanningCurrentTime(date = new Date()): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+08:00`;
 }
 
+export function resolvePlanningCurrentTime(currentTime?: string, date = new Date()): string {
+  if (currentTime) {
+    const parsed = new Date(currentTime);
+    if (!Number.isNaN(parsed.getTime())) {
+      return currentTime;
+    }
+  }
+
+  return buildPlanningCurrentTime(date);
+}
+
 const COMMERCIAL_KEYWORDS = ["来福士", "万象城", "银泰", "广场", "购物", "mall", "商场"];
 const OUTDOOR_KEYWORDS = ["park", "playground", "公园", "绿地", "滨江", "自然"];
 const INDOOR_KEYWORDS = ["indoor", "室内", "乐园", "游乐", "mall"];
