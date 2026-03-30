@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildFallbackPlan,
   buildPlanningCurrentTime,
+  getPlanningHour,
   buildRealtimePlan,
   resolvePlanningCurrentTime,
   buildScopedLocationLabel,
@@ -658,6 +659,11 @@ describe("planning helpers", () => {
     expect(resolvePlanningCurrentTime("not-a-time", new Date("2026-03-30T15:07:32.899Z"))).toBe(
       "2026-03-30T23:07:32+08:00",
     );
+  });
+
+  it("reads planning hours in Asia/Shanghai even when the runtime timezone differs", () => {
+    expect(getPlanningHour("2026-03-30T21:18:00+08:00")).toBe(21);
+    expect(getPlanningHour("2026-03-30T00:18:00+08:00")).toBe(0);
   });
 
   it("returns two schedule options for realtime plans", () => {

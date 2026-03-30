@@ -58,7 +58,17 @@ export interface PlanResultShape {
   recommendations: Array<{ name: string; reason: string; distance: string; lat?: number; lng?: number; address?: string }>;
 }
 
-export function buildPlanningCurrentTime(date = new Date()): string {
+interface PlanningDateParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function getPlanningDateParts(source: string | Date = new Date()): PlanningDateParts {
+  const date = source instanceof Date ? source : new Date(source);
   const formatter = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Asia/Shanghai",
     year: "numeric",
@@ -71,9 +81,35 @@ export function buildPlanningCurrentTime(date = new Date()): string {
   });
 
   const parts = formatter.formatToParts(date);
-  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? "0");
 
-  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}+08:00`;
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+    second: get("second"),
+  };
+}
+
+function buildPlanningReferenceDate(source?: string): Date {
+  if (!source) {
+    return new Date();
+  }
+
+  const parts = getPlanningDateParts(source);
+  return new Date(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+export function getPlanningHour(source: string | Date = new Date()): number {
+  return getPlanningDateParts(source).hour;
+}
+
+export function buildPlanningCurrentTime(date = new Date()): string {
+  const parts = getPlanningDateParts(date);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}+08:00`;
 }
 
 export function resolvePlanningCurrentTime(currentTime?: string, date = new Date()): string {
@@ -656,7 +692,7 @@ interface ScheduleBlueprint {
 }
 
 function getReferenceTime(context: PlanningContext): Date {
-  return context.currentTime ? new Date(context.currentTime) : new Date();
+  return buildPlanningReferenceDate(context.currentTime);
 }
 
 function buildBaseStart(context: PlanningContext, mode: "depart-now" | "regular-rhythm", dayIndex: number): Date {
